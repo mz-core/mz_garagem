@@ -1,0 +1,49 @@
+fx_version 'cerulean'
+game 'gta5'
+lua54 'yes'
+
+name 'mz_garagem'
+author 'mz-core'
+description 'Garage v1 integrated with mz_core'
+version '0.1.0'
+
+shared_scripts {
+  '@ox_lib/init.lua',
+  'shared/config.lua',
+  'shared/blocked_vehicles.lua',
+  'shared/garages.lua',
+  'shared/service_fleet.lua',
+  'shared/vehicles_catalog.lua'
+}
+
+server_scripts {
+  'server/services/access.lua',
+  'server/services/dto.lua',
+  'server/services/owned.lua',
+  'server/services/org.lua',
+  'server/services/service.lua',
+  'server/callbacks.lua',
+  'server/main.lua'
+}
+
+client_scripts {
+  'client/helpers.lua',
+  'client/spawn.lua',
+  'client/nui.lua',
+  'client/main.lua'
+}
+
+ui_page 'web/index.html'
+
+files {
+  'web/index.html',
+  'web/style.css',
+  'web/script.js',
+  'web/vehicle-fallback.svg'
+}
+
+dependencies {
+  'ox_lib',
+  'mz_core',
+  'mz_vehicles'
+}

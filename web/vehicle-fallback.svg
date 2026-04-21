@@ -1,0 +1,11 @@
+<svg width="640" height="360" viewBox="0 0 640 360" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="640" height="360" rx="24" fill="#0C121C"/>
+  <rect x="16" y="16" width="608" height="328" rx="18" fill="#111A28" stroke="#243245" stroke-width="2"/>
+  <path d="M184 213L216 164C223.5 152.5 236.3 145.6 250 145H391C405.4 145.6 418.6 153.3 426 165.6L456 213V258H432V230H208V258H184V213Z" fill="#233248"/>
+  <rect x="222" y="170" width="82" height="42" rx="8" fill="#39516D"/>
+  <rect x="334" y="170" width="82" height="42" rx="8" fill="#39516D"/>
+  <circle cx="238" cy="257" r="27" fill="#081018" stroke="#455A73" stroke-width="8"/>
+  <circle cx="402" cy="257" r="27" fill="#081018" stroke="#455A73" stroke-width="8"/>
+  <text x="320" y="82" text-anchor="middle" fill="#E2E8F0" font-size="26" font-family="Arial, sans-serif" font-weight="700">SEM IMAGEM</text>
+  <text x="320" y="110" text-anchor="middle" fill="#8FA1B9" font-size="16" font-family="Arial, sans-serif">Configure MZGaragemConfig.images.baseUrl</text>
+</svg>

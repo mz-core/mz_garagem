@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>mz_garagem</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <main class="garage-app" id="app">
+      <div class="garage-shell">
+        <header class="garage-topbar">
+          <div class="garage-title-wrap">
+            <div class="garage-title-icon" id="garage-icon">G</div>
+            <div>
+              <p class="garage-kicker" id="garage-count">0 veiculos</p>
+              <h1 class="garage-title" id="garage-title">Garagem</h1>
+            </div>
+          </div>
+
+          <div class="garage-actions">
+            <label class="search-box" for="search-input">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M10.5 4a6.5 6.5 0 1 0 4.03 11.6l4.43 4.44 1.41-1.42-4.43-4.43A6.5 6.5 0 0 0 10.5 4Zm0 2a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9Z"></path>
+              </svg>
+              <input type="text" id="search-input" placeholder="Buscar por nome, modelo, marca ou placa" autocomplete="off" />
+            </label>
+
+            <button class="nearby-btn hidden" id="store-nearby-btn" type="button">Guardar proximo</button>
+
+            <button class="close-btn" id="close-btn" type="button" aria-label="Fechar">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M18.3 5.71 12 12l6.3 6.29-1.42 1.42L10.59 13.4 4.29 19.7 2.88 18.3 9.17 12 2.88 5.71 4.3 4.29l6.29 6.3 6.29-6.3z"></path>
+              </svg>
+            </button>
+          </div>
+        </header>
+
+        <section class="category-bar" id="category-bar"></section>
+
+        <section class="garage-main">
+          <div class="vehicle-stage" id="vehicle-stage"></div>
+          <aside class="vehicle-sidecard" id="vehicle-sidecard"></aside>
+        </section>
+      </div>
+    </main>
+
+    <script src="script.js"></script>
+  </body>
+</html>
