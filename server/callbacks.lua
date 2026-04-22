@@ -23,6 +23,26 @@ local function logGarageFlow(stage, source, detail, extra)
   ))
 end
 
+local function logOpenGarageCallback(stage, source, garage, detail)
+  garage = type(garage) == 'table' and garage or {}
+  detail = type(detail) == 'table' and detail or {}
+
+  local access = type(garage.access) == 'table' and garage.access or {}
+
+  print(('[mz_garagem][open_callback][%s][source:%s] garage_id=%s | kind=%s | org_code=%s | require_membership=%s | require_duty=%s | fleet_id=%s | entries_count=%s | error=%s'):format(
+    tostring(stage or 'unknown'),
+    tostring(source or 'unknown'),
+    tostring(garage.id or detail.garage_id or ''),
+    tostring(garage.kind or ''),
+    tostring(garage.org_code or ''),
+    tostring(access.require_membership),
+    tostring(access.require_duty),
+    tostring(garage.fleet_id or ''),
+    tostring(detail.entries_count or 0),
+    tostring(detail.error or '')
+  ))
+end
+
 local function errorResponse(stage, err, extra)
   local payload = {
     ok = false,
@@ -58,7 +78,7 @@ local function grantVehicleAccess(source, access, payload)
       kind = tostring(access.kind or ''),
       garage_id = tostring(access.garage and access.garage.id or ''),
       org_code = access.garage and access.garage.org_code and tostring(access.garage.org_code) or nil,
-      model = tostring(payload.model or ''),
+      model = tostring(payload.vehicle_model or payload.model or ''),
       runtime_id = payload.runtime_id and tostring(payload.runtime_id) or nil
     })
   end)
@@ -125,20 +145,36 @@ local function validateStorePosition(source, access, payload)
 end
 
 lib.callback.register('mz_garagem:server:openGarage', function(source, garageId)
+  local requestedGarage = MZGaragemAccess.getGarage(garageId)
+  logOpenGarageCallback('request', source, requestedGarage, {
+    garage_id = tostring(garageId or '')
+  })
+
   local ok, access = MZGaragemAccess.resolve(source, garageId)
   if not ok then
+    logOpenGarageCallback('access_error', source, requestedGarage, {
+      garage_id = tostring(garageId or ''),
+      error = access
+    })
     logGarageFlow('open', source, access, garageId)
     return errorResponse('server_access', access, { garage_id = tostring(garageId or '') })
   end
 
   local listOk, entries = openGarageList(source, access)
   if not listOk then
+    logOpenGarageCallback('list_error', source, access.garage, {
+      error = entries
+    })
     logGarageFlow('open', source, entries, access.kind)
     return errorResponse('server_open_list', entries, {
       garage_id = tostring(garageId or ''),
       kind = tostring(access.kind or '')
     })
   end
+
+  logOpenGarageCallback('success', source, access.garage, {
+    entries_count = type(entries) == 'table' and #entries or 0
+  })
 
   return {
     ok = true,

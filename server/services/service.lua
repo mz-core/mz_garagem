@@ -6,6 +6,37 @@ local runtimeState = {
   by_player_garage = {}
 }
 
+local function shouldLogServiceOpen(access)
+  local garage = type(access) == 'table' and access.garage or access
+  local garageId = tostring(type(garage) == 'table' and garage.id or '')
+  return garageId == 'police_service'
+end
+
+local function logServiceOpen(stage, source, access, detail)
+  if not shouldLogServiceOpen(access) then
+    return
+  end
+
+  detail = type(detail) == 'table' and detail or {}
+  local garage = type(access) == 'table' and access.garage or {}
+  local fleet = type(detail.fleet) == 'table' and detail.fleet or nil
+  local fleetEntries = fleet and type(fleet.entries) == 'table' and #fleet.entries or 0
+
+  print(('[mz_garagem][open_service][%s][source:%s] garage_id=%s | kind=%s | org_code=%s | fleet_id=%s | fleet_found=%s | fleet_entries=%s | entries_count=%s | active_runtime=%s | error=%s'):format(
+    tostring(stage or 'unknown'),
+    tostring(source or 'unknown'),
+    tostring(garage.id or ''),
+    tostring(garage.kind or ''),
+    tostring(garage.org_code or ''),
+    tostring(garage.fleet_id or ''),
+    tostring(fleet ~= nil),
+    tostring(fleetEntries),
+    tostring(detail.entries_count or 0),
+    tostring(detail.active_runtime == true),
+    tostring(detail.error or '')
+  ))
+end
+
 local function getFleet(garage)
   if not garage or not garage.fleet_id then
     return nil
@@ -114,11 +145,11 @@ local function categoryAllowed(garage, fleetEntry)
 end
 
 local function vehicleBlocked(model)
-  if not MZGaragemBlocklist or type(MZGaragemBlocklist.isBlocked) ~= 'function' then
+  if not MZGaragemVehicleDomain or type(MZGaragemVehicleDomain.isBlocked) ~= 'function' then
     return false, nil
   end
 
-  return MZGaragemBlocklist.isBlocked(model)
+  return MZGaragemVehicleDomain.isBlocked(model)
 end
 
 local function plateExistsAnywhere(plate)
@@ -146,6 +177,9 @@ end
 function MZGaragemService.list(source, access)
   local fleet = getFleet(access.garage)
   if not fleet then
+    logServiceOpen('list_error', source, access, {
+      error = 'service_fleet_not_found'
+    })
     return false, 'service_fleet_not_found'
   end
 
@@ -169,6 +203,12 @@ function MZGaragemService.list(source, access)
       rows[#rows + 1] = MZGaragemDTO.buildServiceEntry(access.garage, entry, runtime, lockedByLimit)
     end
   end
+
+  logServiceOpen('list_ok', source, access, {
+    fleet = fleet,
+    entries_count = #rows,
+    active_runtime = activeRuntime ~= nil
+  })
 
   return true, MZGaragemDTO.sort(rows)
 end
@@ -221,6 +261,7 @@ function MZGaragemService.withdraw(source, access, entryId)
     kind = 'service',
     runtime_id = runtimeId,
     plate = plate,
+    vehicle_model = runtime.model,
     model = runtime.model,
     props = runtime.props,
     fuel = runtime.fuel,

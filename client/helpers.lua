@@ -4,59 +4,34 @@ MZGaragemClient = MZGaragemClient or {
 
 MZGaragemClientHelpers = MZGaragemClientHelpers or {}
 
-local MOD_FIELDS = {
-  [0] = 'modSpoilers',
-  [1] = 'modFrontBumper',
-  [2] = 'modRearBumper',
-  [3] = 'modSideSkirt',
-  [4] = 'modExhaust',
-  [5] = 'modFrame',
-  [6] = 'modGrille',
-  [7] = 'modHood',
-  [8] = 'modFender',
-  [9] = 'modRightFender',
-  [10] = 'modRoof',
-  [11] = 'modEngine',
-  [12] = 'modBrakes',
-  [13] = 'modTransmission',
-  [14] = 'modHorns',
-  [15] = 'modSuspension',
-  [16] = 'modArmor',
-  [17] = 'modKit17',
-  [19] = 'modKit19',
-  [21] = 'modKit21',
-  [23] = 'modFrontWheels',
-  [24] = 'modBackWheels',
-  [25] = 'modPlateHolder',
-  [26] = 'modVanityPlate',
-  [27] = 'modTrimA',
-  [28] = 'modOrnaments',
-  [29] = 'modDashboard',
-  [30] = 'modDial',
-  [31] = 'modDoorSpeaker',
-  [32] = 'modSeats',
-  [33] = 'modSteeringWheel',
-  [34] = 'modShifterLeavers',
-  [35] = 'modAPlate',
-  [36] = 'modSpeakers',
-  [37] = 'modTrunk',
-  [38] = 'modHydrolic',
-  [39] = 'modEngineBlock',
-  [40] = 'modAirFilter',
-  [41] = 'modStruts',
-  [42] = 'modArchCover',
-  [43] = 'modAerials',
-  [44] = 'modTrimB',
-  [45] = 'modTank',
-  [46] = 'modWindows',
-  [47] = 'modKit47',
-  [48] = 'modLivery',
-  [49] = 'modKit49'
-}
+local function trimScalarString(value)
+  local valueType = type(value)
+  if valueType == 'string' or valueType == 'number' or valueType == 'boolean' then
+    return tostring(value):gsub('^%s+', ''):gsub('%s+$', '')
+  end
 
-local function round(value, decimals)
-  local power = 10 ^ (decimals or 0)
-  return math.floor((tonumber(value) or 0) * power + 0.5) / power
+  return ''
+end
+
+local function normalizePlateText(value)
+  return trimScalarString(value):upper()
+end
+
+local function readPlateDirect(vehicle)
+  if not vehicle or vehicle == 0 or not DoesEntityExist(vehicle) then
+    return ''
+  end
+
+  return normalizePlateText(GetVehicleNumberPlateText(vehicle) or '')
+end
+
+local function normalizeEntityHandle(vehicle)
+  local normalizedVehicle = tonumber(vehicle)
+  if normalizedVehicle and normalizedVehicle > 0 then
+    return normalizedVehicle
+  end
+
+  return 0
 end
 
 local function normalizeNotifyType(notifyType)
@@ -92,6 +67,20 @@ local function logVehiclesBridgeError(exportName, err)
   ))
 end
 
+local function logDeleteBridge(stage, rawVehicle, normalizedVehicle)
+  local rawExists = rawVehicle ~= nil and rawVehicle ~= 0 and DoesEntityExist(rawVehicle) or false
+  local normalizedExists = normalizedVehicle ~= 0 and DoesEntityExist(normalizedVehicle) or false
+
+  print(('[mz_garagem][delete_bridge][%s] raw_entity=%s | raw_type=%s | normalized_entity=%s | raw_exists=%s | normalized_exists=%s'):format(
+    tostring(stage or 'unknown'),
+    tostring(rawVehicle),
+    tostring(type(rawVehicle)),
+    tostring(normalizedVehicle),
+    tostring(rawExists),
+    tostring(normalizedExists)
+  ))
+end
+
 local function callVehiclesExport(exportName, ...)
   if not canUseVehiclesExports() then
     return false, nil, nil, 'mz_vehicles_unavailable'
@@ -107,6 +96,40 @@ local function callVehiclesExport(exportName, ...)
   end
 
   return true, a, b, nil
+end
+
+local function callVehiclesLoadModelExport(model)
+  if not canUseVehiclesExports() then
+    return false, nil, nil, 'mz_vehicles_unavailable'
+  end
+
+  local ok, exportOk, modelHash, modelErr = pcall(function()
+    return exports['mz_vehicles']:LoadModel(model)
+  end)
+
+  if not ok then
+    logVehiclesBridgeError('LoadModel', exportOk)
+    return false, nil, nil, 'mz_vehicles_export_failed'
+  end
+
+  return true, exportOk, modelHash, modelErr, nil
+end
+
+local function callVehiclesDeleteExport(target)
+  if not canUseVehiclesExports() then
+    return false, nil, nil, 'mz_vehicles_unavailable'
+  end
+
+  local ok, deleted, detail = pcall(function()
+    return exports['mz_vehicles']:DeleteVehicleSafely(target)
+  end)
+
+  if not ok then
+    logVehiclesBridgeError('DeleteVehicleSafely', deleted)
+    return false, nil, nil, 'mz_vehicles_export_failed'
+  end
+
+  return true, deleted, detail, nil
 end
 
 function MZGaragemClientHelpers.notify(message, notifyType, title)
@@ -163,49 +186,68 @@ function MZGaragemClientHelpers.drawGarageMarker(garage)
   )
 end
 
-function MZGaragemClientHelpers.getPlate(vehicle)
-  local ok, plate, _, bridgeErr = callVehiclesExport('GetVehiclePlate', vehicle)
-  if ok then
-    return tostring(plate or '')
-  end
-
-  if bridgeErr ~= 'mz_vehicles_unavailable' then
-    return ''
-  end
-
+function MZGaragemClientHelpers.getPlate(vehicle, retryRead)
   if not vehicle or vehicle == 0 or not DoesEntityExist(vehicle) then
     return ''
   end
 
-  return tostring(GetVehicleNumberPlateText(vehicle) or ''):upper():gsub('^%s+', ''):gsub('%s+$', '')
-end
+  local attempts = retryRead == true and 5 or 1
 
-function MZGaragemClientHelpers.loadModel(model)
-  local ok, modelHash, modelErr, bridgeErr = callVehiclesExport('LoadModel', model)
-  if ok then
-    return modelHash, modelErr
-  end
+  for attempt = 1, attempts do
+    local ok, plate = callVehiclesExport('GetVehiclePlate', vehicle)
+    local normalizedExportPlate = ok and normalizePlateText(plate) or ''
+    if normalizedExportPlate ~= '' then
+      return normalizedExportPlate
+    end
 
-  if bridgeErr ~= 'mz_vehicles_unavailable' then
-    return nil, bridgeErr
-  end
+    local normalizedDirectPlate = readPlateDirect(vehicle)
+    if normalizedDirectPlate ~= '' then
+      return normalizedDirectPlate
+    end
 
-  local modelHash = type(model) == 'number' and model or joaat(tostring(model or ''))
-  if not IsModelInCdimage(modelHash) then
-    return nil, 'model_not_found'
-  end
-
-  RequestModel(modelHash)
-
-  local timeoutAt = GetGameTimer() + 10000
-  while not HasModelLoaded(modelHash) do
-    Wait(0)
-    if GetGameTimer() > timeoutAt then
-      return nil, 'model_timeout'
+    if attempt < attempts then
+      Wait(0)
     end
   end
 
-  return modelHash
+  return ''
+end
+
+function MZGaragemClientHelpers.loadModel(model)
+  local modelType = type(model)
+  local normalizedModel = trimScalarString(model)
+
+  if modelType ~= 'number' and modelType ~= 'string' then
+    return nil, 'invalid_vehicle_model'
+  end
+
+  if modelType == 'string' and normalizedModel == '' then
+    return nil, 'invalid_vehicle_model'
+  end
+
+  local ok, exportOk, modelHash, modelErr, bridgeErr = callVehiclesLoadModelExport(
+    modelType == 'string' and normalizedModel or model
+  )
+
+  if not ok then
+    return nil, bridgeErr or 'mz_vehicles_export_failed'
+  end
+
+  if exportOk == true then
+    local normalizedHash = tonumber(modelHash)
+    if normalizedHash and normalizedHash ~= 0 then
+      return normalizedHash, nil
+    end
+
+    return nil, 'invalid_model_hash'
+  end
+
+  local normalizedErr = trimScalarString(modelErr)
+  if normalizedErr ~= '' then
+    return nil, normalizedErr
+  end
+
+  return nil, 'unknown_model_error'
 end
 
 function MZGaragemClientHelpers.findAvailableSpawnPoint(garage)
@@ -214,57 +256,81 @@ function MZGaragemClientHelpers.findAvailableSpawnPoint(garage)
     return nil
   end
 
-  local firstFree = nil
-  for _, point in ipairs(points) do
-    local occupied = IsPositionOccupied(
-      point.x,
-      point.y,
-      point.z,
-      4.0,
-      false,
-      true,
-      false,
-      false,
-      false,
-      0,
-      false
-    )
+  local function pointIsFree(point, radius)
+    local vehicleNearby = GetClosestVehicle(point.x, point.y, point.z, radius, 0, 71)
+    return (not vehicleNearby or vehicleNearby == 0)
+  end
 
-    if not occupied then
-      firstFree = point
-      break
+  local radii = { 2.0, 2.5, 3.0 }
+
+  for _, radius in ipairs(radii) do
+    for _, point in ipairs(points) do
+      if pointIsFree(point, radius) then
+        if MZGaragemConfig.debug == true then
+          print(('[mz_garagem][spawn] point free (garage:%s radius:%.1f x:%.2f y:%.2f z:%.2f)'):format(
+            tostring(garage.id or 'unknown'),
+            radius,
+            point.x, point.y, point.z
+          ))
+        end
+        return point
+      end
     end
   end
 
-  return firstFree
+  if MZGaragemConfig.debug == true then
+    print(('[mz_garagem][spawn] no free spawn point (garage:%s points:%d)'):format(
+      tostring(garage.id or 'unknown'),
+      #points
+    ))
+  end
+
+  return nil
 end
 
 function MZGaragemClientHelpers.isVehicleEmpty(vehicle)
-  local ok, isEmpty, _, bridgeErr = callVehiclesExport('IsVehicleEmpty', vehicle)
+  local ok, isEmpty = callVehiclesExport('IsVehicleEmpty', vehicle)
   if ok then
     return isEmpty == true
   end
 
-  if bridgeErr ~= 'mz_vehicles_unavailable' then
-    return false
+  return false
+end
+
+local function chooseBetterNearbyStoreCandidate(currentBest, candidate)
+  if not currentBest then
+    return candidate
   end
 
-  if not vehicle or vehicle == 0 or not DoesEntityExist(vehicle) then
-    return false
+  if candidate.has_plate ~= currentBest.has_plate then
+    return candidate.has_plate == true and candidate or currentBest
   end
 
-  if GetPedInVehicleSeat(vehicle, -1) ~= 0 then
-    return false
+  if candidate.garage_distance ~= currentBest.garage_distance then
+    return candidate.garage_distance < currentBest.garage_distance and candidate or currentBest
   end
 
-  local maxPassengers = GetVehicleMaxNumberOfPassengers(vehicle)
-  for seat = 0, maxPassengers - 1 do
-    if GetPedInVehicleSeat(vehicle, seat) ~= 0 then
-      return false
-    end
+  if candidate.player_distance ~= currentBest.player_distance then
+    return candidate.player_distance < currentBest.player_distance and candidate or currentBest
   end
 
-  return true
+  return currentBest
+end
+
+local function logNearbyStoreCandidate(stage, detail)
+  detail = type(detail) == 'table' and detail or {}
+
+  print(('[mz_garagem][store_nearby][%s] entity=%s | plate=%s | dist_player=%s | dist_garage=%s | is_empty=%s | player_in_vehicle=%s | player_is_driver=%s | discard_reason=%s'):format(
+    tostring(stage or 'candidate'),
+    tostring(detail.entity or 0),
+    tostring(detail.plate or ''),
+    tostring(detail.dist_player),
+    tostring(detail.dist_garage),
+    tostring(detail.is_empty),
+    tostring(detail.player_in_vehicle),
+    tostring(detail.player_is_driver),
+    tostring(detail.discard_reason or '')
+  ))
 end
 
 function MZGaragemClientHelpers.findNearbyVehicleForStore(garage)
@@ -277,336 +343,169 @@ function MZGaragemClientHelpers.findNearbyVehicleForStore(garage)
   end
 
   local ped = PlayerPedId()
+  local currentVehicle = GetVehiclePedIsIn(ped, false)
+  local playerInVehicle = currentVehicle ~= 0 and DoesEntityExist(currentVehicle)
   local playerCoords = GetEntityCoords(ped)
   local garageCoords = garage.zone.coords
   local maxVehicleDistance = tonumber(MZGaragemConfig.maxVehicleDistance or 8.0) or 8.0
   local maxGarageDistance = tonumber(MZGaragemConfig.maxGarageDistance or 12.0) or 12.0
 
   if #(playerCoords - garageCoords) > maxGarageDistance then
+    logNearbyStoreCandidate('search_abort', {
+      entity = 0,
+      plate = '',
+      dist_player = 0,
+      dist_garage = #(playerCoords - garageCoords),
+      is_empty = false,
+      player_in_vehicle = playerInVehicle,
+      player_is_driver = playerInVehicle and GetPedInVehicleSeat(currentVehicle, -1) == ped or false,
+      discard_reason = 'garage_too_far'
+    })
     return nil, 'garage_too_far'
   end
 
-  local nearestVehicle = nil
-  local nearestDistance = nil
+  if currentVehicle ~= 0 and DoesEntityExist(currentVehicle) and GetPedInVehicleSeat(currentVehicle, -1) == ped then
+    local currentVehicleCoords = GetEntityCoords(currentVehicle)
+    local currentGarageDistance = #(garageCoords - currentVehicleCoords)
+    local currentPlate = readPlateDirect(currentVehicle)
+    logNearbyStoreCandidate('current_vehicle', {
+      entity = currentVehicle,
+      plate = currentPlate,
+      dist_player = #(playerCoords - currentVehicleCoords),
+      dist_garage = currentGarageDistance,
+      is_empty = MZGaragemClientHelpers.isVehicleEmpty(currentVehicle),
+      player_in_vehicle = true,
+      player_is_driver = true,
+      discard_reason = currentGarageDistance <= maxGarageDistance and currentPlate ~= '' and 'selected_current_vehicle' or (
+        currentGarageDistance > maxGarageDistance and 'current_vehicle_too_far_from_garage' or 'current_vehicle_missing_plate'
+      )
+    })
+
+    if currentGarageDistance <= maxGarageDistance and currentPlate ~= '' then
+      return currentVehicle
+    end
+  end
+
+  local bestCandidate = nil
 
   for _, vehicle in ipairs(GetGamePool('CVehicle')) do
-    if vehicle ~= 0 and DoesEntityExist(vehicle) and MZGaragemClientHelpers.isVehicleEmpty(vehicle) then
+    local detail = {
+      entity = vehicle,
+      plate = '',
+      dist_player = 0,
+      dist_garage = 0,
+      is_empty = false,
+      player_in_vehicle = playerInVehicle,
+      player_is_driver = false,
+      discard_reason = ''
+    }
+
+    if vehicle == 0 or not DoesEntityExist(vehicle) then
+      detail.discard_reason = 'entity_missing'
+      logNearbyStoreCandidate('discard', detail)
+    else
       local vehicleCoords = GetEntityCoords(vehicle)
       local playerDistance = #(playerCoords - vehicleCoords)
       local garageDistance = #(garageCoords - vehicleCoords)
+      local isEmpty = MZGaragemClientHelpers.isVehicleEmpty(vehicle)
+      local playerIsDriver = GetPedInVehicleSeat(vehicle, -1) == ped
+      local plate = readPlateDirect(vehicle)
 
-      if playerDistance <= maxVehicleDistance and garageDistance <= maxGarageDistance then
-        if not nearestDistance or playerDistance < nearestDistance then
-          nearestVehicle = vehicle
-          nearestDistance = playerDistance
-        end
+      detail.plate = plate
+      detail.dist_player = playerDistance
+      detail.dist_garage = garageDistance
+      detail.is_empty = isEmpty
+      detail.player_is_driver = playerIsDriver
+
+      if plate == '' then
+        detail.discard_reason = 'plate_missing'
+        logNearbyStoreCandidate('discard', detail)
+      elseif garageDistance > maxGarageDistance then
+        detail.discard_reason = 'too_far_from_garage'
+        logNearbyStoreCandidate('discard', detail)
+      elseif playerDistance > maxVehicleDistance then
+        detail.discard_reason = 'too_far_from_player'
+        logNearbyStoreCandidate('discard', detail)
+      else
+        detail.discard_reason = 'candidate_with_plate'
+        logNearbyStoreCandidate('candidate', detail)
+
+        bestCandidate = chooseBetterNearbyStoreCandidate(bestCandidate, {
+          vehicle = vehicle,
+          player_distance = playerDistance,
+          garage_distance = garageDistance,
+          has_plate = plate ~= ''
+        })
       end
     end
   end
 
-  if not nearestVehicle then
+  if not bestCandidate or not bestCandidate.vehicle then
+    logNearbyStoreCandidate('search_result', {
+      entity = 0,
+      plate = '',
+      dist_player = 0,
+      dist_garage = 0,
+      is_empty = false,
+      player_in_vehicle = playerInVehicle,
+      player_is_driver = playerInVehicle and GetPedInVehicleSeat(currentVehicle, -1) == ped or false,
+      discard_reason = 'nearby_vehicle_not_found'
+    })
     return nil, 'nearby_vehicle_not_found'
   end
 
-  return nearestVehicle
+  logNearbyStoreCandidate('search_result', {
+    entity = bestCandidate.vehicle,
+    plate = readPlateDirect(bestCandidate.vehicle),
+    dist_player = bestCandidate.player_distance,
+    dist_garage = bestCandidate.garage_distance,
+    is_empty = MZGaragemClientHelpers.isVehicleEmpty(bestCandidate.vehicle),
+    player_in_vehicle = playerInVehicle,
+    player_is_driver = GetPedInVehicleSeat(bestCandidate.vehicle, -1) == ped,
+    discard_reason = 'selected_best_candidate'
+  })
+
+  return bestCandidate.vehicle
 end
 
 function MZGaragemClientHelpers.getVehicleProperties(vehicle)
-  local ok, props, _, bridgeErr = callVehiclesExport('GetVehicleProperties', vehicle)
+  local ok, props = callVehiclesExport('GetVehicleProperties', vehicle)
   if ok and type(props) == 'table' then
     return props
   end
 
-  if bridgeErr ~= 'mz_vehicles_unavailable' then
-    return {}
-  end
-
-  if not vehicle or vehicle == 0 or not DoesEntityExist(vehicle) then
-    return {}
-  end
-
-  local pearlescentColor, wheelColor = GetVehicleExtraColours(vehicle)
-  local colorPrimary, colorSecondary = GetVehicleColours(vehicle)
-
-  if GetIsVehiclePrimaryColourCustom(vehicle) then
-    local r, g, b = GetVehicleCustomPrimaryColour(vehicle)
-    colorPrimary = { r, g, b }
-  end
-
-  if GetIsVehicleSecondaryColourCustom(vehicle) then
-    local r, g, b = GetVehicleCustomSecondaryColour(vehicle)
-    colorSecondary = { r, g, b }
-  end
-
-  local extras = {}
-  for extraId = 0, 20 do
-    if DoesExtraExist(vehicle, extraId) then
-      local enabled = IsVehicleExtraTurnedOn(vehicle, extraId)
-      extras[tostring(extraId)] = enabled == 1 or enabled == true
-    end
-  end
-
-  local neonEnabled = {
-    IsVehicleNeonLightEnabled(vehicle, 0),
-    IsVehicleNeonLightEnabled(vehicle, 1),
-    IsVehicleNeonLightEnabled(vehicle, 2),
-    IsVehicleNeonLightEnabled(vehicle, 3)
-  }
-
-  local neonColor = table.pack(GetVehicleNeonLightsColour(vehicle))
-  local tyreSmokeColor = table.pack(GetVehicleTyreSmokeColor(vehicle))
-
-  local windowStatus = {}
-  for index = 0, 7 do
-    windowStatus[index] = IsVehicleWindowIntact(vehicle, index) == 1
-  end
-
-  local doorStatus = {}
-  for index = 0, 5 do
-    doorStatus[index] = IsVehicleDoorDamaged(vehicle, index) == 1
-  end
-
-  local tireBurstState = {}
-  for index = 0, 5 do
-    tireBurstState[index] = IsVehicleTyreBurst(vehicle, index, false)
-  end
-
-  local props = {
-    model = GetEntityModel(vehicle),
-    plate = MZGaragemClientHelpers.getPlate(vehicle),
-    plateIndex = GetVehicleNumberPlateTextIndex(vehicle),
-    bodyHealth = round(GetVehicleBodyHealth(vehicle), 1),
-    engineHealth = round(GetVehicleEngineHealth(vehicle), 1),
-    tankHealth = round(GetVehiclePetrolTankHealth(vehicle), 1),
-    fuelLevel = round(GetVehicleFuelLevel(vehicle), 1),
-    dirtLevel = round(GetVehicleDirtLevel(vehicle), 1),
-    color1 = colorPrimary,
-    color2 = colorSecondary,
-    pearlescentColor = pearlescentColor,
-    dashboardColor = GetVehicleDashboardColour(vehicle),
-    wheelColor = wheelColor,
-    wheels = GetVehicleWheelType(vehicle),
-    windowTint = GetVehicleWindowTint(vehicle),
-    neonEnabled = neonEnabled,
-    neonColor = neonColor,
-    interiorColor = GetVehicleInteriorColour(vehicle),
-    extras = extras,
-    tyreSmokeColor = tyreSmokeColor,
-    tireBurstState = tireBurstState,
-    windowStatus = windowStatus,
-    doorStatus = doorStatus,
-    modCustomTiresF = GetVehicleModVariation(vehicle, 23),
-    modCustomTiresR = GetVehicleModVariation(vehicle, 24),
-    liveryRoof = GetVehicleRoofLivery(vehicle)
-  }
-
-  local hasCustomXenon, xr, xg, xb = GetVehicleXenonLightsCustomColor(vehicle)
-  if hasCustomXenon then
-    props.xenonColor = { xr, xg, xb }
-  else
-    props.xenonColor = GetVehicleXenonLightsColor(vehicle)
-  end
-
-  props.modTurbo = IsToggleModOn(vehicle, 18)
-  props.modSmokeEnabled = IsToggleModOn(vehicle, 20)
-  props.modXenon = IsToggleModOn(vehicle, 22)
-
-  for modIndex, fieldName in pairs(MOD_FIELDS) do
-    props[fieldName] = GetVehicleMod(vehicle, modIndex)
-  end
-
-  return props
+  return {}
 end
 
 function MZGaragemClientHelpers.setVehicleProperties(vehicle, props)
-  local ok, _, _, bridgeErr = callVehiclesExport('SetVehicleProperties', vehicle, props)
-  if ok then
-    return
-  end
-
-  if bridgeErr ~= 'mz_vehicles_unavailable' then
-    return
-  end
-
-  if not vehicle or vehicle == 0 or not DoesEntityExist(vehicle) or type(props) ~= 'table' then
-    return
-  end
-
-  SetVehicleModKit(vehicle, 0)
-
-  if props.extras then
-    for extraId, enabled in pairs(props.extras) do
-      SetVehicleExtra(vehicle, tonumber(extraId), enabled and 0 or 1)
-    end
-  end
-
-  local currentPrimary, currentSecondary = GetVehicleColours(vehicle)
-  local currentPearlescent, currentWheelColor = GetVehicleExtraColours(vehicle)
-
-  if props.plate ~= nil then
-    SetVehicleNumberPlateText(vehicle, tostring(props.plate))
-  end
-
-  if props.plateIndex ~= nil then
-    SetVehicleNumberPlateTextIndex(vehicle, props.plateIndex)
-  end
-
-  if props.bodyHealth ~= nil then
-    SetVehicleBodyHealth(vehicle, (tonumber(props.bodyHealth) or 1000) + 0.0)
-  end
-
-  if props.engineHealth ~= nil then
-    SetVehicleEngineHealth(vehicle, (tonumber(props.engineHealth) or 1000) + 0.0)
-  end
-
-  if props.tankHealth ~= nil then
-    SetVehiclePetrolTankHealth(vehicle, (tonumber(props.tankHealth) or 1000) + 0.0)
-  end
-
-  if props.fuelLevel ~= nil then
-    SetVehicleFuelLevel(vehicle, (tonumber(props.fuelLevel) or 100) + 0.0)
-  end
-
-  if props.dirtLevel ~= nil then
-    SetVehicleDirtLevel(vehicle, (tonumber(props.dirtLevel) or 0) + 0.0)
-  end
-
-  if props.color1 ~= nil then
-    if type(props.color1) == 'table' then
-      SetVehicleCustomPrimaryColour(vehicle, props.color1[1] or 0, props.color1[2] or 0, props.color1[3] or 0)
-    else
-      ClearVehicleCustomPrimaryColour(vehicle)
-      SetVehicleColours(vehicle, tonumber(props.color1) or currentPrimary, currentSecondary)
-    end
-  end
-
-  if props.color2 ~= nil then
-    if type(props.color2) == 'table' then
-      SetVehicleCustomSecondaryColour(vehicle, props.color2[1] or 0, props.color2[2] or 0, props.color2[3] or 0)
-    else
-      ClearVehicleCustomSecondaryColour(vehicle)
-      SetVehicleColours(vehicle, props.color1 or currentPrimary, tonumber(props.color2) or currentSecondary)
-    end
-  end
-
-  SetVehicleExtraColours(
-    vehicle,
-    tonumber(props.pearlescentColor) or currentPearlescent,
-    tonumber(props.wheelColor) or currentWheelColor
-  )
-
-  if props.dashboardColor ~= nil then
-    SetVehicleDashboardColour(vehicle, props.dashboardColor)
-  end
-
-  if props.interiorColor ~= nil then
-    SetVehicleInteriorColour(vehicle, props.interiorColor)
-  end
-
-  if props.wheels ~= nil then
-    SetVehicleWheelType(vehicle, props.wheels)
-  end
-
-  if props.windowTint ~= nil then
-    SetVehicleWindowTint(vehicle, props.windowTint)
-  end
-
-  if props.neonEnabled then
-    for index = 1, 4 do
-      SetVehicleNeonLightEnabled(vehicle, index - 1, props.neonEnabled[index] == true)
-    end
-  end
-
-  if props.neonColor and type(props.neonColor) == 'table' then
-    SetVehicleNeonLightsColour(vehicle, props.neonColor[1] or 255, props.neonColor[2] or 255, props.neonColor[3] or 255)
-  end
-
-  if props.tyreSmokeColor and type(props.tyreSmokeColor) == 'table' then
-    SetVehicleTyreSmokeColor(vehicle, props.tyreSmokeColor[1] or 255, props.tyreSmokeColor[2] or 255, props.tyreSmokeColor[3] or 255)
-  end
-
-  ToggleVehicleMod(vehicle, 18, props.modTurbo == true)
-  ToggleVehicleMod(vehicle, 20, props.modSmokeEnabled == true)
-  ToggleVehicleMod(vehicle, 22, props.modXenon == true)
-
-  for modIndex, fieldName in pairs(MOD_FIELDS) do
-    if props[fieldName] ~= nil then
-      local useCustomTires = false
-      if modIndex == 23 then
-        useCustomTires = props.modCustomTiresF == true
-      elseif modIndex == 24 then
-        useCustomTires = props.modCustomTiresR == true
-      end
-
-      SetVehicleMod(vehicle, modIndex, tonumber(props[fieldName]) or -1, useCustomTires)
-    end
-  end
-
-  if props.modLivery ~= nil and GetVehicleLiveryCount(vehicle) > 0 and tonumber(props.modLivery) and tonumber(props.modLivery) >= 0 then
-    SetVehicleLivery(vehicle, tonumber(props.modLivery))
-  end
-
-  if props.xenonColor ~= nil then
-    if type(props.xenonColor) == 'table' then
-      SetVehicleXenonLightsCustomColor(vehicle, props.xenonColor[1] or 255, props.xenonColor[2] or 255, props.xenonColor[3] or 255)
-    else
-      SetVehicleXenonLightsColor(vehicle, tonumber(props.xenonColor) or 0)
-    end
-  end
-
-  if props.windowStatus then
-    for index, intact in pairs(props.windowStatus) do
-      if intact ~= true then
-        SmashVehicleWindow(vehicle, tonumber(index))
-      end
-    end
-  end
-
-  if props.doorStatus then
-    for index, damaged in pairs(props.doorStatus) do
-      if damaged == true then
-        SetVehicleDoorBroken(vehicle, tonumber(index), true)
-      end
-    end
-  end
-
-  if props.tireBurstState then
-    for index, burst in pairs(props.tireBurstState) do
-      if burst == true then
-        SetVehicleTyreBurst(vehicle, tonumber(index), false, 1000.0)
-      end
-    end
-  end
-
-  if props.liveryRoof ~= nil then
-    SetVehicleRoofLivery(vehicle, tonumber(props.liveryRoof) or 0)
-  end
+  callVehiclesExport('SetVehicleProperties', vehicle, props)
 end
 
 function MZGaragemClientHelpers.deleteVehicleSafely(vehicle)
-  local ok, _, _, bridgeErr = callVehiclesExport('DeleteVehicleSafely', vehicle)
+  local normalizedVehicle = normalizeEntityHandle(vehicle)
+  logDeleteBridge('call_export', vehicle, normalizedVehicle)
+
+  if normalizedVehicle == 0 then
+    return false, {
+      entity = 0,
+      net_id = 0,
+      plate = '',
+      exists_before = false,
+      exists_after = false,
+      delete_result = false
+    }
+  end
+
+  local deleteTarget = {
+    entity = normalizedVehicle,
+    net_id = DoesEntityExist(normalizedVehicle) and NetworkGetNetworkIdFromEntity(normalizedVehicle) or 0,
+    plate = readPlateDirect(normalizedVehicle)
+  }
+
+  local ok, deleted, detail = callVehiclesDeleteExport(deleteTarget)
   if ok then
-    return
+    return deleted == true, detail
   end
 
-  if bridgeErr ~= 'mz_vehicles_unavailable' then
-    return
-  end
-
-  if not vehicle or vehicle == 0 or not DoesEntityExist(vehicle) then
-    return
-  end
-
-  local ped = PlayerPedId()
-  if IsPedInVehicle(ped, vehicle, false) then
-    TaskLeaveVehicle(ped, vehicle, 16)
-    Wait(300)
-  end
-
-  SetEntityAsMissionEntity(vehicle, true, true)
-  DeleteVehicle(vehicle)
-
-  if DoesEntityExist(vehicle) then
-    DeleteEntity(vehicle)
-  end
+  return false, nil
 end

@@ -1,5 +1,32 @@
 MZGaragemOrg = MZGaragemOrg or {}
 
+local function shouldLogOrgOpen(access)
+  local garage = type(access) == 'table' and access.garage or access
+  local garageId = tostring(type(garage) == 'table' and garage.id or '')
+  return garageId == 'police_org'
+end
+
+local function logOrgOpen(stage, source, access, detail)
+  if not shouldLogOrgOpen(access) then
+    return
+  end
+
+  detail = type(detail) == 'table' and detail or {}
+  local garage = type(access) == 'table' and access.garage or {}
+
+  print(('[mz_garagem][open_org][%s][source:%s] garage_id=%s | kind=%s | org_code=%s | strict_garage=%s | vehicles_total=%s | entries_count=%s | error=%s'):format(
+    tostring(stage or 'unknown'),
+    tostring(source or 'unknown'),
+    tostring(garage.id or ''),
+    tostring(garage.kind or ''),
+    tostring(garage.org_code or ''),
+    tostring(garage.rules and garage.rules.strict_garage == true),
+    tostring(detail.vehicles_total or 0),
+    tostring(detail.entries_count or 0),
+    tostring(detail.error or '')
+  ))
+end
+
 local function categoryAllowed(garage, vehicle)
   local allowed = garage.filters and garage.filters.categories or nil
   if type(allowed) ~= 'table' or #allowed == 0 then
@@ -30,11 +57,11 @@ local function getVehicleOrError(plate)
 end
 
 local function vehicleBlocked(model)
-  if not MZGaragemBlocklist or type(MZGaragemBlocklist.isBlocked) ~= 'function' then
+  if not MZGaragemVehicleDomain or type(MZGaragemVehicleDomain.isBlocked) ~= 'function' then
     return false, nil
   end
 
-  return MZGaragemBlocklist.isBlocked(model)
+  return MZGaragemVehicleDomain.isBlocked(model)
 end
 
 local function validateGaragePolicy(access, vehicle, action)
@@ -59,6 +86,9 @@ end
 function MZGaragemOrg.list(source, access)
   local ok, vehicles = exports['mz_core']:GetOrgVehicles(access.garage.org_code)
   if not ok then
+    logOrgOpen('list_error', source, access, {
+      error = vehicles
+    })
     return false, vehicles
   end
 
@@ -75,6 +105,11 @@ function MZGaragemOrg.list(source, access)
       end
     end
   end
+
+  logOrgOpen('list_ok', source, access, {
+    vehicles_total = type(vehicles) == 'table' and #vehicles or 0,
+    entries_count = #rows
+  })
 
   return true, MZGaragemDTO.sort(rows)
 end
@@ -103,6 +138,7 @@ function MZGaragemOrg.withdraw(source, access, plate)
   return true, {
     kind = 'persistent',
     plate = tostring(updatedVehicle.plate or ''),
+    vehicle_model = tostring(updatedVehicle.model or ''),
     model = tostring(updatedVehicle.model or ''),
     props = updatedVehicle.props_json or {},
     fuel = tonumber(updatedVehicle.fuel) or 100,

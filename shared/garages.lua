@@ -1,4 +1,5 @@
 MZGaragemGarages = {
+  
   pillbox_public = {
     id = 'pillbox_public',
     label = 'Pillbox Garage',
@@ -9,8 +10,10 @@ MZGaragemGarages = {
     },
     spawn_points = {
       vec4(231.0, -801.3, 30.6, 157.0),
-      vec4(234.4, -803.2, 30.5, 157.0),
-      vec4(237.4, -805.1, 30.4, 157.0)
+      vec4(235.2, -803.8, 30.5, 157.0),
+      vec4(239.6, -806.5, 30.4, 157.0),
+      vec4(244.0, -809.1, 30.3, 157.0),
+      vec4(248.3, -811.8, 30.2, 157.0)
     },
     blip = {
       enabled = true,
@@ -28,6 +31,7 @@ MZGaragemGarages = {
       allow_impounded = true
     }
   },
+
   police_org = {
     id = 'police_org',
     label = 'Police Garage',
@@ -64,6 +68,7 @@ MZGaragemGarages = {
       allow_impounded = false
     }
   },
+
   police_service = {
     id = 'police_service',
     label = 'Police Service Fleet',

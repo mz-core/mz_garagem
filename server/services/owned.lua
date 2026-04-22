@@ -26,11 +26,11 @@ local function getVehicleOrError(plate)
 end
 
 local function vehicleBlocked(model)
-  if not MZGaragemBlocklist or type(MZGaragemBlocklist.isBlocked) ~= 'function' then
+  if not MZGaragemVehicleDomain or type(MZGaragemVehicleDomain.isBlocked) ~= 'function' then
     return false, nil
   end
 
-  return MZGaragemBlocklist.isBlocked(model)
+  return MZGaragemVehicleDomain.isBlocked(model)
 end
 
 local function validateGaragePolicy(access, vehicle, action)
@@ -100,6 +100,7 @@ function MZGaragemOwned.withdraw(source, access, plate)
   return true, {
     kind = 'persistent',
     plate = tostring(updatedVehicle.plate or ''),
+    vehicle_model = tostring(updatedVehicle.model or ''),
     model = tostring(updatedVehicle.model or ''),
     props = updatedVehicle.props_json or {},
     fuel = tonumber(updatedVehicle.fuel) or 100,

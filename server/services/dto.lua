@@ -21,30 +21,54 @@ local function cloneTable(value)
   return out
 end
 
-local function safeString(value, fallback)
+local function trimScalarString(value)
   local valueType = type(value)
   if valueType == 'string' or valueType == 'number' or valueType == 'boolean' then
-    local text = tostring(value)
-    if text ~= '' then
-      return text
-    end
-  end
-
-  local fallbackType = type(fallback)
-  if fallbackType == 'string' or fallbackType == 'number' or fallbackType == 'boolean' then
-    return tostring(fallback)
+    return tostring(value):gsub('^%s+', ''):gsub('%s+$', '')
   end
 
   return ''
 end
 
-local function getCatalog(model)
-  if MZGaragemVehicleCatalog and type(MZGaragemVehicleCatalog.getEntry) == 'function' then
-    return MZGaragemVehicleCatalog.getEntry(model)
+local function safeString(value, fallback)
+  local text = trimScalarString(value)
+  if text ~= '' then
+    return text
   end
 
-  model = tostring(model or ''):lower()
-  return MZGaragemVehiclesCatalog and MZGaragemVehiclesCatalog[model] or nil
+  return trimScalarString(fallback)
+end
+
+local function normalizeVehicleModel(value)
+  return safeString(value, ''):lower()
+end
+
+local function getValidLabel(value, fallback1, fallback2)
+  local normalized = safeString(value, '')
+  if normalized ~= '' then
+    return normalized
+  end
+
+  normalized = safeString(fallback1, '')
+  if normalized ~= '' then
+    return normalized
+  end
+
+  normalized = safeString(fallback2, '')
+  if normalized ~= '' then
+    return normalized
+  end
+
+  return 'Vehicle'
+end
+
+local function getValidImageKey(value, vehicleModel)
+  local normalized = safeString(value, '')
+  if normalized ~= '' then
+    return normalized
+  end
+
+  return safeString(vehicleModel, '')
 end
 
 local function getGarageLabel(garageId)
@@ -57,10 +81,11 @@ local function getGarageLabel(garageId)
 end
 
 local function makeCommon(garage, kind, data)
-  local model = safeString(data.vehicle_model, '')
-  local vehicleLabel = safeString(data.vehicle_label, model ~= '' and model or 'Vehicle')
-  local category = safeString(data.category, 'car')
-  local imageKey = safeString(data.image_key, model)
+  local model = normalizeVehicleModel(data.vehicle_model)
+  local vehicleLabel = getValidLabel(data.vehicle_label, model, 'Vehicle')
+  local brand = safeString(data.brand, '')
+  local category = safeString(data.category, '')
+  local imageKey = getValidImageKey(data.image_key, model)
 
   return {
     entry_id = safeString(data.entry_id, ''),
@@ -70,14 +95,14 @@ local function makeCommon(garage, kind, data)
     org_code = data.org_code and safeString(data.org_code, nil) or nil,
     vehicle_model = model,
     vehicle_label = vehicleLabel,
-    brand = safeString(data.brand, ''),
-    category = category ~= '' and category or 'car',
+    brand = brand,
+    category = category,
     plate = safeString(data.plate, ''),
     state = tostring(data.state or 'stored'),
     fuel = tonumber(data.fuel) or 100,
     engine = tonumber(data.engine) or 1000,
     body = tonumber(data.body) or 1000,
-    image_key = imageKey ~= '' and imageKey or model,
+    image_key = imageKey,
     location_label = safeString(data.location_label, safeString(garage.label, '')),
     actions = cloneTable(data.actions or {
       withdraw = false,
@@ -96,29 +121,34 @@ local function makeCommon(garage, kind, data)
 end
 
 local function applyCatalogDefaults(model, fallback)
-  if MZGaragemVehicleCatalog and type(MZGaragemVehicleCatalog.resolve) == 'function' then
-    local resolved = MZGaragemVehicleCatalog.resolve(model, {
+  fallback = type(fallback) == 'table' and fallback or {}
+
+  local normalizedModel = normalizeVehicleModel(model)
+  local resolved = nil
+  if MZGaragemVehicleDomain and type(MZGaragemVehicleDomain.resolveCatalog) == 'function' then
+    resolved = MZGaragemVehicleDomain.resolveCatalog(normalizedModel, {
       label = fallback.vehicle_label,
       brand = fallback.brand,
       category = fallback.category,
       image_key = fallback.image_key
     })
-
-    return {
-      vehicle_label = safeString(resolved.label, safeString(model, 'Vehicle')),
-      brand = safeString(resolved.brand, ''),
-      category = safeString(resolved.category, 'car'),
-      image_key = safeString(resolved.image_key, safeString(model, ''))
-    }
   end
 
-  local catalog = getCatalog(model) or {}
+  resolved = type(resolved) == 'table' and resolved or {}
+
+  local resolvedImageKey = ''
+  if MZGaragemVehicleDomain and type(MZGaragemVehicleDomain.resolveImageKey) == 'function' then
+    resolvedImageKey = MZGaragemVehicleDomain.resolveImageKey(normalizedModel, resolved.image_key or fallback.image_key)
+  else
+    resolvedImageKey = getValidImageKey(resolved.image_key or fallback.image_key, normalizedModel)
+  end
 
   return {
-    vehicle_label = safeString(fallback.vehicle_label, safeString(catalog.label, safeString(model, 'Vehicle'))),
-    brand = safeString(fallback.brand, safeString(catalog.brand, '')),
-    category = safeString(fallback.category, safeString(catalog.category, 'car')),
-    image_key = safeString(fallback.image_key, safeString(catalog.image_key, safeString(model, '')))
+    vehicle_model = normalizedModel,
+    vehicle_label = getValidLabel(resolved.label, normalizedModel, 'Vehicle'),
+    brand = safeString(resolved.brand, fallback.brand),
+    category = safeString(resolved.category, fallback.category),
+    image_key = getValidImageKey(resolvedImageKey, normalizedModel)
   }
 end
 
@@ -158,10 +188,10 @@ function MZGaragemDTO.buildOwnedEntry(garage, vehicle)
 
   return makeCommon(garage, 'owned', {
     entry_id = tostring(vehicle.plate or ''),
-    vehicle_model = tostring(vehicle.model or ''),
+    vehicle_model = catalogDefaults.vehicle_model ~= '' and catalogDefaults.vehicle_model or vehicle.model,
     vehicle_label = catalogDefaults.vehicle_label,
     brand = catalogDefaults.brand,
-    category = tostring(vehicle.category or catalogDefaults.category),
+    category = vehicle.category or catalogDefaults.category,
     plate = tostring(vehicle.plate or ''),
     state = state,
     fuel = tonumber(vehicle.fuel) or 100,
@@ -192,6 +222,13 @@ function MZGaragemDTO.buildServiceEntry(garage, fleetEntry, runtime, lockedByLim
     category = fleetEntry.category,
     image_key = fleetEntry.image_key
   })
+  local serviceVehicleLabel = getValidLabel(fleetEntry.label, catalogDefaults.vehicle_label, fleetEntry.model)
+  local serviceBrand = safeString(fleetEntry.brand, catalogDefaults.brand)
+  local serviceCategory = safeString(fleetEntry.category, catalogDefaults.category)
+  local serviceImageKey = getValidImageKey(
+    fleetEntry.image_key,
+    catalogDefaults.image_key ~= '' and catalogDefaults.image_key or catalogDefaults.vehicle_model
+  )
   local isActive = runtime ~= nil
   local state = isActive and 'active' or 'available'
   local actions = {
@@ -204,16 +241,16 @@ function MZGaragemDTO.buildServiceEntry(garage, fleetEntry, runtime, lockedByLim
   return makeCommon(garage, 'service', {
     entry_id = tostring(fleetEntry.entry_id or fleetEntry.model or ''),
     org_code = garage.org_code and tostring(garage.org_code) or nil,
-    vehicle_model = tostring(fleetEntry.model or ''),
-    vehicle_label = catalogDefaults.vehicle_label,
-    brand = catalogDefaults.brand,
-    category = catalogDefaults.category,
+    vehicle_model = catalogDefaults.vehicle_model ~= '' and catalogDefaults.vehicle_model or fleetEntry.model,
+    vehicle_label = serviceVehicleLabel,
+    brand = serviceBrand,
+    category = serviceCategory,
     plate = runtime and tostring(runtime.plate or '') or '',
     state = state,
     fuel = runtime and tonumber(runtime.fuel) or tonumber(fleetEntry.fuel) or 100,
     engine = runtime and tonumber(runtime.engine) or tonumber(fleetEntry.engine) or 1000,
     body = runtime and tonumber(runtime.body) or tonumber(fleetEntry.body) or 1000,
-    image_key = catalogDefaults.image_key,
+    image_key = serviceImageKey,
     location_label = tostring(garage.label or garage.id or ''),
     actions = actions,
     flags = {

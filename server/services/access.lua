@@ -27,6 +27,36 @@ local function getPlayerOrgs(source)
   return exports['mz_core']:GetPlayerOrgs(source) or {}
 end
 
+local function shouldLogGarageOpenDebug(garage)
+  local garageId = tostring(type(garage) == 'table' and garage.id or garage or '')
+  return garageId == 'police_org' or garageId == 'police_service'
+end
+
+local function logAccessOpenDebug(stage, source, garage, org, err)
+  if not shouldLogGarageOpenDebug(garage) then
+    return
+  end
+
+  garage = type(garage) == 'table' and garage or {}
+  local access = type(garage.access) == 'table' and garage.access or {}
+  local grade = type(org) == 'table' and type(org.grade) == 'table' and org.grade.level or nil
+
+  print(('[mz_garagem][open_access][%s][source:%s] garage_id=%s | kind=%s | org_code=%s | require_membership=%s | require_duty=%s | membership_found=%s | duty=%s | grade_level=%s | fleet_id=%s | error=%s'):format(
+    tostring(stage or 'unknown'),
+    tostring(source or 'unknown'),
+    tostring(garage.id or ''),
+    tostring(garage.kind or ''),
+    tostring(garage.org_code or ''),
+    tostring(access.require_membership),
+    tostring(access.require_duty),
+    tostring(type(org) == 'table'),
+    tostring(type(org) == 'table' and org.duty or nil),
+    tostring(grade),
+    tostring(garage.fleet_id or ''),
+    tostring(err or '')
+  ))
+end
+
 local function normalizeRules(garage)
   local rules = cloneTable(garage.rules or {})
   local strictGarage = rules.strict_garage == true
@@ -135,6 +165,8 @@ function MZGaragemAccess.resolve(source, garageId)
     return false, 'garage_not_found'
   end
 
+  logAccessOpenDebug('garage_loaded', source, garage, nil, nil)
+
   local context = {
     source = source,
     player = player,
@@ -150,41 +182,50 @@ function MZGaragemAccess.resolve(source, garageId)
 
   local orgCode = tostring(garage.org_code or '')
   if orgCode == '' then
+    logAccessOpenDebug('resolve_ok_no_org_code', source, garage, nil, nil)
     return true, context
   end
 
   local org = MZGaragemAccess.resolveOrgMembership(source, orgCode)
+  logAccessOpenDebug('membership_lookup', source, garage, org, nil)
   if not org then
+    logAccessOpenDebug('resolve_error', source, garage, org, 'org_membership_required')
     return false, 'org_membership_required'
   end
 
   local access = garage.access or {}
   if access.require_membership ~= false and not org then
+    logAccessOpenDebug('resolve_error', source, garage, org, 'org_membership_required')
     return false, 'org_membership_required'
   end
 
   if access.require_duty == true and org.duty ~= true then
+    logAccessOpenDebug('resolve_error', source, garage, org, 'org_duty_required')
     return false, 'org_duty_required'
   end
 
   if access.primary_only == true and org.isPrimary ~= true then
+    logAccessOpenDebug('resolve_error', source, garage, org, 'org_primary_required')
     return false, 'org_primary_required'
   end
 
   local minGradeLevel = tonumber(access.min_grade_level or 0) or 0
   local currentGradeLevel = tonumber(org.grade and org.grade.level or 0) or 0
   if currentGradeLevel < minGradeLevel then
+    logAccessOpenDebug('resolve_error', source, garage, org, 'org_grade_too_low')
     return false, 'org_grade_too_low'
   end
 
   local requiredPermissions = access.required_org_permissions or {}
   for _, permission in ipairs(requiredPermissions) do
     if type(org.permissions) ~= 'table' or org.permissions[permission] ~= true then
+      logAccessOpenDebug('resolve_error', source, garage, org, 'org_permission_required')
       return false, 'org_permission_required'
     end
   end
 
   context.org = org
+  logAccessOpenDebug('resolve_ok', source, garage, org, nil)
 
   return true, context
 end

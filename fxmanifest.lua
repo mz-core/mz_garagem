@@ -10,13 +10,12 @@ version '0.1.0'
 shared_scripts {
   '@ox_lib/init.lua',
   'shared/config.lua',
-  'shared/blocked_vehicles.lua',
   'shared/garages.lua',
-  'shared/service_fleet.lua',
-  'shared/vehicles_catalog.lua'
+  'shared/service_fleet.lua'
 }
 
 server_scripts {
+  'server/services/vehicle_domain.lua',
   'server/services/access.lua',
   'server/services/dto.lua',
   'server/services/owned.lua',

@@ -23,12 +23,45 @@ local function getNearestGarage()
   return nearestGarage, nearestDistance
 end
 
+local function logOpenGarageClient(stage, garage, detail)
+  garage = type(garage) == 'table' and garage or {}
+  detail = type(detail) == 'table' and detail or {}
+
+  local access = type(garage.access) == 'table' and garage.access or {}
+
+  print(('[mz_garagem][open_client][%s] garage_id=%s | kind=%s | org_code=%s | require_membership=%s | require_duty=%s | fleet_id=%s | entries_count=%s | response_stage=%s | error=%s'):format(
+    tostring(stage or 'unknown'),
+    tostring(garage.id or ''),
+    tostring(garage.kind or ''),
+    tostring(garage.org_code or ''),
+    tostring(access.require_membership),
+    tostring(access.require_duty),
+    tostring(garage.fleet_id or ''),
+    tostring(detail.entries_count or 0),
+    tostring(detail.response_stage or ''),
+    tostring(detail.error or '')
+  ))
+end
+
 local function openGarage(garageId)
+  local garage = MZGaragemGarages and MZGaragemGarages[garageId] or {}
+  garage.id = garage.id or garageId
+
+  logOpenGarageClient('request', garage)
+
   local response = lib.callback.await('mz_garagem:server:openGarage', false, garageId)
   if not response or response.ok ~= true then
+    logOpenGarageClient('response_error', garage, {
+      response_stage = response and response.stage or 'client_nil_response',
+      error = response and response.error or 'client_nil_response'
+    })
     MZGaragemClientHelpers.notify('Nao foi possivel abrir a garagem.', 'error')
     return
   end
+
+  logOpenGarageClient('response_ok', garage, {
+    entries_count = type(response.entries) == 'table' and #response.entries or 0
+  })
 
   MZGaragemNUI.open(response)
 end
@@ -37,8 +70,22 @@ local function clearServiceTracking(plate)
   MZGaragemClient.serviceVehiclesByPlate[tostring(plate or '')] = nil
 end
 
+local function logStoreCleanup(stage, detail)
+  detail = type(detail) == 'table' and detail or {}
+
+  print(('[mz_garagem][store_cleanup][%s] entity=%s | net_id=%s | plate=%s | exists_before=%s | exists_after=%s | delete_result=%s'):format(
+    tostring(stage or 'snapshot'),
+    tostring(detail.entity or 0),
+    tostring(detail.net_id or 0),
+    tostring(detail.plate or ''),
+    tostring(detail.exists_before),
+    tostring(detail.exists_after),
+    tostring(detail.delete_result)
+  ))
+end
+
 local function storeVehicleEntity(garage, vehicle)
-  local plate = MZGaragemClientHelpers.getPlate(vehicle)
+  local plate = MZGaragemClientHelpers.getPlate(vehicle, true)
   if plate == '' then
     MZGaragemClientHelpers.notify('Nao foi possivel identificar a placa do veiculo.', 'error')
     return false
@@ -56,6 +103,7 @@ local function storeVehicleEntity(garage, vehicle)
   end
 
   local payload = MZGaragemSpawn.captureStorePayload(vehicle, serviceInfo and serviceInfo.runtime_id or nil)
+  payload.plate = plate
   local response = lib.callback.await('mz_garagem:server:storeVehicle', false, garage.id, payload)
   if not response or response.ok ~= true then
     MZGaragemClientHelpers.notify('Nao foi possivel guardar o veiculo.', 'error')
@@ -65,7 +113,30 @@ local function storeVehicleEntity(garage, vehicle)
   clearServiceTracking(plate)
 
   if MZGaragemConfig.delete_vehicle_on_store == true then
-    MZGaragemClientHelpers.deleteVehicleSafely(vehicle)
+    local deleteDetail = {
+      entity = tonumber(vehicle) or 0,
+      net_id = vehicle ~= 0 and DoesEntityExist(vehicle) and NetworkGetNetworkIdFromEntity(vehicle) or 0,
+      plate = plate,
+      exists_before = vehicle ~= 0 and DoesEntityExist(vehicle) or false
+    }
+
+    logStoreCleanup('before_delete', deleteDetail)
+
+    local deleted, helperDetail = MZGaragemClientHelpers.deleteVehicleSafely(vehicle)
+    helperDetail = type(helperDetail) == 'table' and helperDetail or deleteDetail
+    helperDetail.entity = helperDetail.entity or deleteDetail.entity
+    helperDetail.net_id = helperDetail.net_id or deleteDetail.net_id
+    helperDetail.plate = helperDetail.plate ~= '' and helperDetail.plate or plate
+    helperDetail.exists_before = helperDetail.exists_before == true or deleteDetail.exists_before == true
+    helperDetail.exists_after = vehicle ~= 0 and DoesEntityExist(vehicle) or false
+    helperDetail.delete_result = deleted == true and helperDetail.exists_after ~= true
+
+    logStoreCleanup('after_delete', helperDetail)
+
+    if deleted ~= true or helperDetail.exists_after == true then
+      MZGaragemClientHelpers.notify('Veiculo guardado no servidor, mas a entidade local nao foi removida.', 'error')
+      return false
+    end
   end
 
   MZGaragemClientHelpers.notify('Veiculo guardado com sucesso.', 'success')
