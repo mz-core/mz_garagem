@@ -29,7 +29,8 @@ client_scripts {
   'client/helpers.lua',
   'client/spawn.lua',
   'client/nui.lua',
-  'client/main.lua'
+  'client/main.lua',
+  'client/interact.lua'
 }
 
 ui_page 'web/index.html'

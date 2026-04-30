@@ -1,5 +1,7 @@
 MZGaragemConfig = {
   debug = false,
+  UseMzInteract = true,
+  FallbackToLegacyMarkers = true,
   draw_markers = true,
   interaction_distance = 3.0,
   marker_draw_distance = 18.0,

@@ -22,6 +22,33 @@ MZGaragemGarages = {
       scale = 0.6,
       label = 'Public Garage'
     },
+    store = {
+      enabled = true,
+      coords = vec3(220.0, -805.0, 30.7),
+      radius = 3.5,
+      interact = {
+        enabled = true,
+        drawDistance = 18.0,
+        interactDistance = 4.0,
+        marker = {
+          enabled = true,
+          type = 1,
+          size = vec3(3.5, 3.5, 0.18),
+          color = { r = 80, g = 210, b = 255, a = 70 },
+          bobUpAndDown = false,
+          rotate = false,
+          faceCamera = false
+        },
+        text = {
+          enabled = true,
+          label = '[E] Guardar veiculo',
+          offsetZ = 0.45
+        },
+        blip = {
+          enabled = false
+        }
+      }
+    },
     filters = {
       categories = { 'car' }
     },
@@ -51,6 +78,33 @@ MZGaragemGarages = {
       color = 38,
       scale = 0.6,
       label = 'Police Garage'
+    },
+    store = {
+      enabled = true,
+      coords = vec3(449.5, -1018.5, 28.4),
+      radius = 3.5,
+      interact = {
+        enabled = true,
+        drawDistance = 18.0,
+        interactDistance = 4.0,
+        marker = {
+          enabled = true,
+          type = 1,
+          size = vec3(3.5, 3.5, 0.18),
+          color = { r = 80, g = 210, b = 255, a = 70 },
+          bobUpAndDown = false,
+          rotate = false,
+          faceCamera = false
+        },
+        text = {
+          enabled = true,
+          label = '[E] Guardar veiculo',
+          offsetZ = 0.45
+        },
+        blip = {
+          enabled = false
+        }
+      }
     },
     filters = {
       categories = { 'car' }
@@ -89,6 +143,33 @@ MZGaragemGarages = {
       color = 38,
       scale = 0.6,
       label = 'Police Service Fleet'
+    },
+    store = {
+      enabled = true,
+      coords = vec3(458.4, -1024.0, 28.2),
+      radius = 3.5,
+      interact = {
+        enabled = true,
+        drawDistance = 18.0,
+        interactDistance = 4.0,
+        marker = {
+          enabled = true,
+          type = 1,
+          size = vec3(3.5, 3.5, 0.18),
+          color = { r = 80, g = 210, b = 255, a = 70 },
+          bobUpAndDown = false,
+          rotate = false,
+          faceCamera = false
+        },
+        text = {
+          enabled = true,
+          label = '[E] Guardar veiculo',
+          offsetZ = 0.45
+        },
+        blip = {
+          enabled = false
+        }
+      }
     },
     filters = {
       categories = { 'car' }

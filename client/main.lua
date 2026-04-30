@@ -1,3 +1,65 @@
+local function getGarageCoords(garage)
+  if type(garage) ~= 'table' then
+    return nil
+  end
+
+  if garage.coords then return garage.coords end
+  if garage.markerCoords then return garage.markerCoords end
+  if garage.position then return garage.position end
+  if garage.location then return garage.location end
+  if type(garage.zone) == 'table' and garage.zone.coords then return garage.zone.coords end
+
+  return nil
+end
+
+local function getStoreConfig(garage)
+  if type(garage) ~= 'table' or type(garage.store) ~= 'table' or garage.store.enabled ~= true then
+    return nil
+  end
+
+  return garage.store
+end
+
+local function getStoreCoords(store)
+  if type(store) ~= 'table' then
+    return nil
+  end
+
+  return store.coords or store.position or store.location
+end
+
+local function drawStoreMarker(store)
+  local interact = type(store.interact) == 'table' and store.interact or {}
+  local marker = type(interact.marker) == 'table' and interact.marker or {}
+  if marker.enabled == false then
+    return
+  end
+
+  local coords = getStoreCoords(store)
+  if not coords then
+    return
+  end
+
+  local size = marker.size or vec3(3.5, 3.5, 0.18)
+  local color = marker.color or {}
+
+  DrawMarker(
+    tonumber(marker.type) or 1,
+    coords.x, coords.y, coords.z,
+    0.0, 0.0, 0.0,
+    0.0, 0.0, 0.0,
+    size.x or 3.5, size.y or 3.5, size.z or 0.18,
+    color.r or 80, color.g or 210, color.b or 255, color.a or 70,
+    marker.bobUpAndDown == true,
+    marker.faceCamera == true,
+    2,
+    marker.rotate == true,
+    nil,
+    nil,
+    false
+  )
+end
+
 local function getNearestGarage()
   local ped = PlayerPedId()
   local coords = GetEntityCoords(ped)
@@ -7,7 +69,12 @@ local function getNearestGarage()
   for garageId, garage in pairs(MZGaragemGarages or {}) do
     garage.id = garage.id or garageId
 
-    local distance = #(coords - garage.zone.coords)
+    local garageCoords = getGarageCoords(garage)
+    if not garageCoords then
+      goto continue
+    end
+
+    local distance = #(coords - garageCoords)
     if distance <= tonumber(MZGaragemConfig.marker_draw_distance or 18.0) then
       MZGaragemClientHelpers.drawGarageMarker(garage)
     end
@@ -18,9 +85,67 @@ local function getNearestGarage()
         nearestDistance = distance
       end
     end
+
+    ::continue::
   end
 
   return nearestGarage, nearestDistance
+end
+
+local function getNearestStoreGarage(vehicle)
+  if not vehicle or vehicle == 0 then
+    return nil, nil
+  end
+
+  local coords = GetEntityCoords(vehicle)
+  local nearestGarage = nil
+  local nearestDistance = nil
+
+  for garageId, garage in pairs(MZGaragemGarages or {}) do
+    garage.id = garage.id or garageId
+
+    local store = getStoreConfig(garage)
+    local storeCoords = getStoreCoords(store)
+    if not storeCoords then
+      goto continue
+    end
+
+    local interact = type(store.interact) == 'table' and store.interact or {}
+    local drawDistance = tonumber(interact.drawDistance or MZGaragemConfig.marker_draw_distance) or 18.0
+    local interactDistance = tonumber(interact.interactDistance or store.radius or MZGaragemConfig.interaction_distance) or 4.0
+    local distance = #(coords - storeCoords)
+
+    if distance <= drawDistance then
+      drawStoreMarker(store)
+    end
+
+    if distance <= interactDistance then
+      if not nearestDistance or distance < nearestDistance then
+        nearestGarage = garage
+        nearestDistance = distance
+      end
+    end
+
+    ::continue::
+  end
+
+  return nearestGarage, nearestDistance
+end
+
+local function isMzInteractActive()
+  return MZGaragemConfig.UseMzInteract == true and GetResourceState('mz_interact') == 'started'
+end
+
+local function shouldUseLegacyInteraction()
+  if isMzInteractActive() then
+    return false
+  end
+
+  if MZGaragemConfig.UseMzInteract == true then
+    return MZGaragemConfig.FallbackToLegacyMarkers == true
+  end
+
+  return true
 end
 
 local function logOpenGarageClient(stage, garage, detail)
@@ -64,6 +189,10 @@ local function openGarage(garageId)
   })
 
   MZGaragemNUI.open(response)
+end
+
+function MZGaragemClient.openGarage(garageId)
+  return openGarage(garageId)
 end
 
 local function clearServiceTracking(plate)
@@ -147,6 +276,38 @@ local function storeCurrentVehicle(garage, vehicle)
   return storeVehicleEntity(garage, vehicle)
 end
 
+function MZGaragemClient.storeCurrentVehicle(garageId)
+  local garage = MZGaragemGarages and MZGaragemGarages[garageId] or nil
+  if not garage then
+    MZGaragemClientHelpers.notify('Garagem nao encontrada para guardar o veiculo.', 'error')
+    return false
+  end
+
+  garage.id = garage.id or garageId
+
+  local ped = PlayerPedId()
+  local vehicle = GetVehiclePedIsIn(ped, false)
+  if vehicle == 0 or GetPedInVehicleSeat(vehicle, -1) ~= ped then
+    MZGaragemClientHelpers.notify('Voce precisa estar dirigindo um veiculo para guardar.', 'warning')
+    return false
+  end
+
+  return storeCurrentVehicle(garage, vehicle)
+end
+
+function MZGaragemClient.handleGarageInteraction(garageId)
+  local garage = MZGaragemGarages and MZGaragemGarages[garageId] or nil
+  if not garage then
+    MZGaragemClientHelpers.notify('Garagem nao encontrada.', 'error')
+    return false
+  end
+
+  garage.id = garage.id or garageId
+
+  openGarage(garage.id)
+  return true
+end
+
 function MZGaragemClient.storeNearbyVehicle(garageId)
   local garage = MZGaragemGarages and MZGaragemGarages[garageId] or nil
   if not garage then
@@ -174,19 +335,22 @@ CreateThread(function()
   while true do
     local sleep = 500
 
-    if exports['mz_core']:GetPlayerData() ~= nil and MZGaragemNUI.isOpen ~= true then
-      local garage = getNearestGarage()
-      if garage then
-        sleep = 0
+    if isMzInteractActive() then
+      sleep = 1000
+    elseif shouldUseLegacyInteraction() and exports['mz_core']:GetPlayerData() ~= nil and MZGaragemNUI.isOpen ~= true then
+      local ped = PlayerPedId()
+      local vehicle = GetVehiclePedIsIn(ped, false)
+      local isDriver = vehicle ~= 0 and GetPedInVehicleSeat(vehicle, -1) == ped
 
-        local ped = PlayerPedId()
-        local vehicle = GetVehiclePedIsIn(ped, false)
+      if isDriver then
+        local storeGarage = getNearestStoreGarage(vehicle)
+        if storeGarage then
+          sleep = 0
 
-        if vehicle ~= 0 and GetPedInVehicleSeat(vehicle, -1) == ped then
-          if garage.kind == 'service' then
+          if storeGarage.kind == 'service' then
             local plate = MZGaragemClientHelpers.getPlate(vehicle)
             local serviceInfo = MZGaragemClient.serviceVehiclesByPlate[plate]
-            if serviceInfo and tostring(serviceInfo.garage_id) == tostring(garage.id) then
+            if serviceInfo and tostring(serviceInfo.garage_id) == tostring(storeGarage.id) then
               MZGaragemClientHelpers.showHelpText('Pressione ~INPUT_CONTEXT~ para guardar o veiculo de servico')
             else
               MZGaragemClientHelpers.showHelpText('Pressione ~INPUT_CONTEXT~ para tentar guardar o veiculo')
@@ -196,9 +360,14 @@ CreateThread(function()
           end
 
           if IsControlJustReleased(0, 38) then
-            storeCurrentVehicle(garage, vehicle)
+            storeCurrentVehicle(storeGarage, vehicle)
           end
-        else
+        end
+      else
+        local garage = getNearestGarage()
+        if garage then
+          sleep = 0
+
           MZGaragemClientHelpers.showHelpText('Pressione ~INPUT_CONTEXT~ para abrir a garagem')
           if IsControlJustReleased(0, 38) then
             openGarage(garage.id)
