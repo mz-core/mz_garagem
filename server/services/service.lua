@@ -134,9 +134,13 @@ local function categoryAllowed(garage, fleetEntry)
     return true
   end
 
-  local vehicleCategory = tostring(fleetEntry.category or 'car')
+  local resolvedCatalog = MZGaragemVehicleDomain
+    and type(MZGaragemVehicleDomain.resolveCatalog) == 'function'
+    and MZGaragemVehicleDomain.resolveCatalog(fleetEntry.model, nil)
+    or nil
+  local vehicleCategory = tostring((type(resolvedCatalog) == 'table' and resolvedCatalog.category) or fleetEntry.category or 'car')
   for _, category in ipairs(allowed) do
-    if tostring(category) == vehicleCategory then
+    if tostring(category) == vehicleCategory or tostring(category) == tostring(fleetEntry.category or '') then
       return true
     end
   end

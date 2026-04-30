@@ -110,38 +110,60 @@ end
 local function validateStorePosition(source, access, payload)
   payload = type(payload) == 'table' and payload or {}
 
-  local garageCoords = access.garage and access.garage.zone and access.garage.zone.coords or nil
-  if not garageCoords then
+  local garage = access.garage or {}
+  local maxGarageDistance = tonumber(MZGaragemConfig.maxGarageDistance or 12.0) or 12.0
+  local validationPoints = {}
+
+  if garage.zone and garage.zone.coords then
+    validationPoints[#validationPoints + 1] = {
+      coords = garage.zone.coords,
+      distance = maxGarageDistance
+    }
+  end
+
+  if type(garage.store) == 'table' and garage.store.enabled == true and garage.store.coords then
+    local storeInteract = type(garage.store.interact) == 'table' and garage.store.interact or {}
+    local storeDistance = tonumber(storeInteract.interactDistance or garage.store.radius or maxGarageDistance) or maxGarageDistance
+    validationPoints[#validationPoints + 1] = {
+      coords = garage.store.coords,
+      distance = math.max(maxGarageDistance, storeDistance)
+    }
+  end
+
+  if #validationPoints == 0 then
     return false, 'garage_not_found'
   end
 
-  local maxGarageDistance = tonumber(MZGaragemConfig.maxGarageDistance or 12.0) or 12.0
   local playerPed = GetPlayerPed(source)
   if not playerPed or playerPed == 0 then
     return false, 'player_not_found'
   end
 
   local playerCoords = GetEntityCoords(playerPed)
-  if #(playerCoords - garageCoords) > maxGarageDistance then
-    return false, 'player_too_far_from_garage'
-  end
-
   local netId = tonumber(payload.net_id or 0) or 0
-  if netId <= 0 then
-    return true
+  local vehicleCoords = nil
+
+  if netId > 0 then
+    local entity = NetworkGetEntityFromNetworkId(netId)
+    if entity and entity ~= 0 and DoesEntityExist(entity) then
+      vehicleCoords = GetEntityCoords(entity)
+    end
   end
 
-  local entity = NetworkGetEntityFromNetworkId(netId)
-  if not entity or entity == 0 or not DoesEntityExist(entity) then
-    return true
+  for _, point in ipairs(validationPoints) do
+    local playerNear = #(playerCoords - point.coords) <= point.distance
+    local vehicleNear = not vehicleCoords or #(vehicleCoords - point.coords) <= point.distance
+
+    if playerNear and vehicleNear then
+      return true
+    end
   end
 
-  local vehicleCoords = GetEntityCoords(entity)
-  if #(vehicleCoords - garageCoords) > maxGarageDistance then
+  if vehicleCoords then
     return false, 'vehicle_too_far_from_garage'
   end
 
-  return true
+  return false, 'player_too_far_from_garage'
 end
 
 lib.callback.register('mz_garagem:server:openGarage', function(source, garageId)

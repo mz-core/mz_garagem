@@ -1,19 +1,39 @@
 MZGaragemOwned = MZGaragemOwned or {}
 
+local function resolveVehicleCategory(vehicle)
+  vehicle = type(vehicle) == 'table' and vehicle or {}
+
+  local resolvedCatalog = MZGaragemVehicleDomain
+    and type(MZGaragemVehicleDomain.resolveCatalog) == 'function'
+    and MZGaragemVehicleDomain.resolveCatalog(vehicle.model, nil)
+    or nil
+
+  return tostring((type(resolvedCatalog) == 'table' and resolvedCatalog.category) or vehicle.category or 'car')
+end
+
+local function vehicleHasAllowedCategory(allowed, category)
+  category = tostring(category or '')
+  if category == '' then
+    return false
+  end
+
+  for _, allowedCategory in ipairs(allowed or {}) do
+    if tostring(allowedCategory) == category then
+      return true
+    end
+  end
+
+  return false
+end
+
 local function categoryAllowed(garage, vehicle)
   local allowed = garage.filters and garage.filters.categories or nil
   if type(allowed) ~= 'table' or #allowed == 0 then
     return true
   end
 
-  local vehicleCategory = tostring(vehicle.category or 'car')
-  for _, category in ipairs(allowed) do
-    if tostring(category) == vehicleCategory then
-      return true
-    end
-  end
-
-  return false
+  return vehicleHasAllowedCategory(allowed, resolveVehicleCategory(vehicle))
+    or vehicleHasAllowedCategory(allowed, vehicle and vehicle.category)
 end
 
 local function getVehicleOrError(plate)
@@ -59,18 +79,53 @@ function MZGaragemOwned.list(source, access)
   end
 
   local rows = {}
+  local vehiclesTotal = 0
   for _, vehicle in ipairs(vehicles or {}) do
+    vehiclesTotal = vehiclesTotal + 1
+
     local state = tostring(vehicle.state or 'stored')
     local blocked = vehicleBlocked(vehicle.model)
+    local allowedCategory = categoryAllowed(access.garage, vehicle)
+    local vehicleGarage = tostring(vehicle.garage or '')
+    local garageId = tostring(access.garage.id or '')
+    local strictGarage = access.garage.rules.strict_garage == true
+    local skipReason = nil
 
-    if not blocked and categoryAllowed(access.garage, vehicle) then
-      if not (state == 'impounded' and access.garage.rules.allow_impounded ~= true) then
-        if access.garage.rules.strict_garage ~= true or tostring(vehicle.garage or '') == tostring(access.garage.id or '') then
-          rows[#rows + 1] = MZGaragemDTO.buildOwnedEntry(access.garage, vehicle)
-        end
-      end
+    if blocked then
+      skipReason = 'vehicle_blocked'
+    elseif not allowedCategory then
+      skipReason = 'category_not_allowed'
+    elseif state == 'impounded' and access.garage.rules.allow_impounded ~= true then
+      skipReason = 'impounded_not_allowed'
+    elseif strictGarage and vehicleGarage ~= garageId then
+      skipReason = 'wrong_garage'
+    end
+
+    if skipReason then
+      print(('[mz_garagem][owned_list_skip] source=%s | citizenid=%s | garage=%s | plate=%s | model=%s | category=%s | db_category=%s | vehicle_garage=%s | state=%s | reason=%s'):format(
+        tostring(source),
+        tostring(access.citizenid or ''),
+        garageId,
+        tostring(vehicle.plate or ''),
+        tostring(vehicle.model or ''),
+        resolveVehicleCategory(vehicle),
+        tostring(vehicle.category or ''),
+        vehicleGarage,
+        state,
+        skipReason
+      ))
+    else
+      rows[#rows + 1] = MZGaragemDTO.buildOwnedEntry(access.garage, vehicle)
     end
   end
+
+  print(('[mz_garagem][owned_list] source=%s | citizenid=%s | garage=%s | vehicles_total=%s | entries_count=%s'):format(
+    tostring(source),
+    tostring(access.citizenid or ''),
+    tostring(access.garage.id or ''),
+    tostring(vehiclesTotal),
+    tostring(#rows)
+  ))
 
   return true, MZGaragemDTO.sort(rows)
 end

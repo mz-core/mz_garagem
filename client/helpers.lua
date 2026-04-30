@@ -173,7 +173,15 @@ function MZGaragemClientHelpers.drawGarageMarker(garage)
   local marker = MZGaragemConfig.marker or {}
   local color = marker.color or {}
   local scale = marker.scale or vec3(0.5, 0.5, 0.5)
-  local coords = garage.zone.coords
+  local coords = garage.coords
+    or garage.markerCoords
+    or garage.position
+    or garage.location
+    or (type(garage.zone) == 'table' and garage.zone.coords or nil)
+
+  if not coords then
+    return
+  end
 
   DrawMarker(
     marker.type or 36,

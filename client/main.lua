@@ -213,6 +213,36 @@ local function logStoreCleanup(stage, detail)
   ))
 end
 
+local STORE_ERROR_MESSAGES = {
+  player_too_far_from_garage = 'Voce esta longe do ponto de guardar.',
+  vehicle_too_far_from_garage = 'O veiculo esta longe do ponto de guardar.',
+  vehicle_category_not_allowed = 'A categoria deste veiculo nao e permitida nesta garagem.',
+  vehicle_access_denied = 'Voce nao tem acesso a este veiculo.',
+  vehicle_not_found = 'Este veiculo nao esta registrado.',
+  garage_kind_mismatch = 'Este veiculo nao pertence ao tipo desta garagem.',
+  invalid_plate = 'A placa do veiculo e invalida.',
+  invalid_garage = 'A garagem e invalida.',
+  vehicle_impounded = 'Este veiculo esta apreendido.',
+  player_not_loaded = 'Seu personagem ainda nao foi carregado.',
+  garage_not_found = 'Garagem nao encontrada.'
+}
+
+local function notifyStoreError(response)
+  response = type(response) == 'table' and response or {}
+  local stage = tostring(response.stage or 'client_nil_response')
+  local err = tostring(response.error or 'unknown_error')
+  local message = STORE_ERROR_MESSAGES[err] or 'Nao foi possivel guardar o veiculo.'
+
+  print(('[mz_garagem][store_client_error] stage=%s | error=%s | garage_id=%s | kind=%s'):format(
+    stage,
+    err,
+    tostring(response.garage_id or ''),
+    tostring(response.kind or '')
+  ))
+
+  MZGaragemClientHelpers.notify(('%s [%s]'):format(message, err), 'error')
+end
+
 local function storeVehicleEntity(garage, vehicle)
   local plate = MZGaragemClientHelpers.getPlate(vehicle, true)
   if plate == '' then
@@ -235,7 +265,7 @@ local function storeVehicleEntity(garage, vehicle)
   payload.plate = plate
   local response = lib.callback.await('mz_garagem:server:storeVehicle', false, garage.id, payload)
   if not response or response.ok ~= true then
-    MZGaragemClientHelpers.notify('Nao foi possivel guardar o veiculo.', 'error')
+    notifyStoreError(response)
     return false
   end
 

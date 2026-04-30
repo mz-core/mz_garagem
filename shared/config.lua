@@ -8,6 +8,14 @@ MZGaragemConfig = {
   allowNearbyStore = true,
   maxVehicleDistance = 8.0,
   maxGarageDistance = 12.0,
+  DefaultInteractIcon = {
+    textureDict = 'mod_icon',
+    textureName = 'arsenal_icon'
+  },
+  DefaultStoreIcon = {
+    textureDict = 'mod_icon',
+    textureName = 'arsenal_icon'
+  },
   marker = {
     type = 36,
     scale = vec3(0.5, 0.5, 0.5),
@@ -29,3 +37,24 @@ MZGaragemConfig = {
     fallbackImage = 'vehicle-fallback.svg'
   }
 }
+
+-- Exemplo de icone por garagem:
+-- interact = {
+--   icon = {
+--     textureDict = 'mod_icon',
+--     textureName = 'arsenal_icon'
+--   }
+-- }
+--
+-- Exemplo de icone no ponto de guardar, caso use marker type 9:
+-- store = {
+--   interact = {
+--     marker = {
+--       type = 9
+--     },
+--     icon = {
+--       textureDict = 'mod_icon',
+--       textureName = 'arsenal_icon'
+--     }
+--   }
+-- }

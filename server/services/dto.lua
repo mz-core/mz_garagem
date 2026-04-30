@@ -152,6 +152,21 @@ local function applyCatalogDefaults(model, fallback)
   }
 end
 
+local function resolveDisplayCategory(vehicleCategory, catalogCategory)
+  local dbCategory = safeString(vehicleCategory, '')
+  local resolvedCategory = safeString(catalogCategory, '')
+
+  if dbCategory ~= '' and (resolvedCategory == '' or resolvedCategory == 'car') then
+    return dbCategory
+  end
+
+  if resolvedCategory ~= '' then
+    return resolvedCategory
+  end
+
+  return dbCategory
+end
+
 function MZGaragemDTO.buildGaragePayload(garage)
   return {
     id = tostring(garage.id or ''),
@@ -191,7 +206,7 @@ function MZGaragemDTO.buildOwnedEntry(garage, vehicle)
     vehicle_model = catalogDefaults.vehicle_model ~= '' and catalogDefaults.vehicle_model or vehicle.model,
     vehicle_label = catalogDefaults.vehicle_label,
     brand = catalogDefaults.brand,
-    category = vehicle.category or catalogDefaults.category,
+    category = resolveDisplayCategory(vehicle.category, catalogDefaults.category),
     plate = tostring(vehicle.plate or ''),
     state = state,
     fuel = tonumber(vehicle.fuel) or 100,

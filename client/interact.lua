@@ -56,19 +56,96 @@ local function getGarageInteractConfig(garage)
   return garage.interact
 end
 
-local function getGarageMarker(interact)
+local function cloneTable(source)
+  local copy = {}
+  for key, value in pairs(type(source) == 'table' and source or {}) do
+    copy[key] = value
+  end
+  return copy
+end
+
+local function fallbackIcon()
+  return 'mod_icon', 'arsenal_icon'
+end
+
+local function iconFromConfig(icon)
+  if type(icon) ~= 'table' then
+    return nil, nil
+  end
+
+  if icon.textureDict == nil and icon.textureName == nil then
+    return nil, nil
+  end
+
+  local fallbackDict, fallbackName = fallbackIcon()
+  return tostring(icon.textureDict or fallbackDict), tostring(icon.textureName or fallbackName)
+end
+
+local function resolveGarageIcon(garage)
+  local interact = getGarageInteractConfig(garage)
+
+  local textureDict, textureName = iconFromConfig(type(interact.marker) == 'table' and interact.marker or nil)
+  if textureDict then return textureDict, textureName end
+
+  textureDict, textureName = iconFromConfig(interact.icon)
+  if textureDict then return textureDict, textureName end
+
+  textureDict, textureName = iconFromConfig({ textureDict = interact.textureDict, textureName = interact.textureName })
+  if textureDict then return textureDict, textureName end
+
+  textureDict, textureName = iconFromConfig(MZGaragemConfig.DefaultInteractIcon)
+  if textureDict then return textureDict, textureName end
+
+  return fallbackIcon()
+end
+
+local function resolveStoreIcon(garage)
+  local garageInteract = getGarageInteractConfig(garage)
+  local store = getStoreConfig(garage) or {}
+  local storeInteract = type(store.interact) == 'table' and store.interact or {}
+
+  local textureDict, textureName = iconFromConfig(type(storeInteract.marker) == 'table' and storeInteract.marker or nil)
+  if textureDict then return textureDict, textureName end
+
+  textureDict, textureName = iconFromConfig(storeInteract.icon)
+  if textureDict then return textureDict, textureName end
+
+  textureDict, textureName = iconFromConfig({ textureDict = storeInteract.textureDict, textureName = storeInteract.textureName })
+  if textureDict then return textureDict, textureName end
+
+  textureDict, textureName = iconFromConfig(type(garageInteract.marker) == 'table' and garageInteract.marker or nil)
+  if textureDict then return textureDict, textureName end
+
+  textureDict, textureName = iconFromConfig(garageInteract.icon)
+  if textureDict then return textureDict, textureName end
+
+  textureDict, textureName = iconFromConfig({ textureDict = garageInteract.textureDict, textureName = garageInteract.textureName })
+  if textureDict then return textureDict, textureName end
+
+  textureDict, textureName = iconFromConfig(MZGaragemConfig.DefaultStoreIcon)
+  if textureDict then return textureDict, textureName end
+
+  textureDict, textureName = iconFromConfig(MZGaragemConfig.DefaultInteractIcon)
+  if textureDict then return textureDict, textureName end
+
+  return fallbackIcon()
+end
+
+local function getGarageMarker(garage, interact)
+  local textureDict, textureName = resolveGarageIcon(garage)
+
   if type(interact.marker) == 'table' then
-    local marker = interact.marker
-    if marker.textureDict == nil then marker.textureDict = 'mod_icon' end
-    if marker.textureName == nil then marker.textureName = interact.textureName or 'arsenal_icon' end
+    local marker = cloneTable(interact.marker)
+    if marker.textureDict == nil then marker.textureDict = textureDict end
+    if marker.textureName == nil then marker.textureName = textureName end
     return marker
   end
 
   return {
     enabled = true,
     type = 9,
-    textureDict = 'mod_icon',
-    textureName = interact.textureName or 'arsenal_icon',
+    textureDict = textureDict,
+    textureName = textureName,
     size = vec3(0.75, 0.75, 0.75),
     color = { r = 255, g = 255, b = 255, a = 230 },
     rotate = true,
@@ -104,9 +181,18 @@ local function getGarageText(interact)
   }
 end
 
-local function getStoreMarker(interact)
+local function getStoreMarker(garage, interact)
   if type(interact.marker) == 'table' then
-    return interact.marker
+    local marker = cloneTable(interact.marker)
+    local markerType = tonumber(marker.type) or 1
+
+    if markerType == 9 then
+      local textureDict, textureName = resolveStoreIcon(garage)
+      if marker.textureDict == nil then marker.textureDict = textureDict end
+      if marker.textureName == nil then marker.textureName = textureName end
+    end
+
+    return marker
   end
 
   return {
@@ -161,7 +247,7 @@ local function registerGaragePoint(garageId, garage)
     -- Permissao aqui e apenas visual. A seguranca real segue no server-side.
     permission = garage.permission or interact.permission,
 
-    marker = getGarageMarker(interact),
+    marker = getGarageMarker(garage, interact),
     blip = getGarageBlip(garage, interact),
     text = getGarageText(interact),
 
@@ -212,7 +298,7 @@ local function registerGarageStorePoint(garageId, garage)
     -- Permissao aqui e apenas visual. A seguranca real segue no server-side.
     permission = garage.permission or interact.permission,
 
-    marker = getStoreMarker(interact),
+    marker = getStoreMarker(garage, interact),
     blip = type(interact.blip) == 'table' and interact.blip or { enabled = false },
     text = getStoreText(interact),
 
@@ -235,6 +321,8 @@ end
 local function unregisterGaragePoints()
   if GetResourceState('mz_interact') ~= 'started' then
     registeredGaragePoints = {}
+    registeredGarageStorePoints = {}
+    storePointsActive = nil
     return
   end
 
@@ -289,6 +377,8 @@ AddEventHandler('onClientResourceStop', function(resourceName)
     unregisterGaragePoints()
   elseif resourceName == 'mz_interact' then
     registeredGaragePoints = {}
+    registeredGarageStorePoints = {}
+    storePointsActive = nil
   end
 end)
 
