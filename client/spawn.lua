@@ -20,6 +20,10 @@ local function canUseVehiclesExports()
   return GetResourceState('mz_vehicles') == 'started'
 end
 
+local function isGarageDebug()
+  return MZGaragemConfig and MZGaragemConfig.debug == true
+end
+
 local function normalizeNumber(value)
   local numericValue = tonumber(value)
   if numericValue == nil then
@@ -64,6 +68,10 @@ local function logSpawnBridgeError(message, detail)
 end
 
 local function logVehicleWorld(message)
+  if not isGarageDebug() then
+    return
+  end
+
   print(('[mz_vehicle_world] %s'):format(tostring(message or '')))
 end
 
@@ -132,6 +140,10 @@ local function applyDestroyedUndriveable(vehicle, plate)
 end
 
 local function logSpawnPayloadSnapshot(stage, payload, point, modelHash)
+  if not isGarageDebug() then
+    return
+  end
+
   local pointType = type(point)
   local hasX = point ~= nil and point.x ~= nil
   local hasY = point ~= nil and point.y ~= nil

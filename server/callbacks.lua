@@ -14,7 +14,15 @@ local function openGarageList(source, access)
   return false, 'invalid_kind'
 end
 
+local function isGarageDebug()
+  return MZGaragemConfig and MZGaragemConfig.debug == true
+end
+
 local function logGarageFlow(stage, source, detail, extra)
+  if not isGarageDebug() then
+    return
+  end
+
   print(('[mz_garagem][%s][source:%s] %s%s'):format(
     tostring(stage or 'flow'),
     tostring(source or 'unknown'),
@@ -24,6 +32,10 @@ local function logGarageFlow(stage, source, detail, extra)
 end
 
 local function logOpenGarageCallback(stage, source, garage, detail)
+  if not isGarageDebug() then
+    return
+  end
+
   garage = type(garage) == 'table' and garage or {}
   detail = type(detail) == 'table' and detail or {}
 
