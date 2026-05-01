@@ -87,6 +87,29 @@ local function validateGaragePolicy(access, vehicle, action)
   return true
 end
 
+local function buildConditionPayload(vehicle)
+  vehicle = type(vehicle) == 'table' and vehicle or {}
+  local metadata = type(vehicle.metadata_json) == 'table' and vehicle.metadata_json or {}
+  local condition = type(metadata.condition) == 'table' and metadata.condition or {}
+  local world = type(metadata.world) == 'table' and metadata.world or {}
+  local engine = tonumber(vehicle.engine) or 1000
+  local body = tonumber(vehicle.body) or 1000
+  local destroyed = condition.destroyed == true
+    or world.destroyed == true
+    or engine <= 50.0
+    or body <= 100.0
+
+  return {
+    destroyed = destroyed,
+    world = {
+      destroyed = destroyed,
+      locked = world.locked,
+      last_coords = world.last_coords,
+      last_heading = world.last_heading
+    }
+  }
+end
+
 function MZGaragemOrg.list(source, access)
   local ok, vehicles = exports['mz_core']:GetOrgVehicles(access.garage.org_code)
   if not ok then
@@ -139,6 +162,8 @@ function MZGaragemOrg.withdraw(source, access, plate)
     return false, updatedVehicle
   end
 
+  local conditionPayload = buildConditionPayload(updatedVehicle)
+
   return true, {
     kind = 'persistent',
     plate = tostring(updatedVehicle.plate or ''),
@@ -147,7 +172,9 @@ function MZGaragemOrg.withdraw(source, access, plate)
     props = updatedVehicle.props_json or {},
     fuel = tonumber(updatedVehicle.fuel) or 100,
     engine = tonumber(updatedVehicle.engine) or 1000,
-    body = tonumber(updatedVehicle.body) or 1000
+    body = tonumber(updatedVehicle.body) or 1000,
+    destroyed = conditionPayload.destroyed,
+    world = conditionPayload.world
   }
 end
 

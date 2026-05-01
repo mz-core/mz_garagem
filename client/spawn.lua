@@ -1,5 +1,7 @@
 MZGaragemSpawn = MZGaragemSpawn or {}
 
+local DestroyedVisualApplied = {}
+
 local function round(value, decimals)
   local power = 10 ^ (decimals or 0)
   return math.floor((tonumber(value) or 0) * power + 0.5) / power
@@ -65,6 +67,70 @@ local function logVehicleWorld(message)
   print(('[mz_vehicle_world] %s'):format(tostring(message or '')))
 end
 
+local function applyDestroyedVisualOnce(vehicle, plate)
+  plate = trimScalarString(plate):upper()
+  if plate == '' or DestroyedVisualApplied[plate] == true then
+    return false
+  end
+
+  DestroyedVisualApplied[plate] = true
+  logVehicleWorld(('apply destroyed visual once %s'):format(plate))
+
+  if type(SetVehicleTyreBurst) ~= 'function' then
+    return true
+  end
+
+  for tyre = 0, 7 do
+    local alreadyBurst = false
+    if type(IsVehicleTyreBurst) == 'function' then
+      local ok, result = pcall(IsVehicleTyreBurst, vehicle, tyre, false)
+      alreadyBurst = ok and result == true
+    end
+
+    if alreadyBurst ~= true then
+      pcall(SetVehicleTyreBurst, vehicle, tyre, true, 1000.0)
+    end
+  end
+
+  return true
+end
+
+local function enforceDestroyedUndriveable(vehicle)
+  if not vehicle or vehicle == 0 or not DoesEntityExist(vehicle) then
+    return false
+  end
+
+  pcall(SetVehicleEngineHealth, vehicle, -4000.0)
+  pcall(SetVehicleBodyHealth, vehicle, 50.0)
+  if type(SetVehiclePetrolTankHealth) == 'function' then
+    pcall(SetVehiclePetrolTankHealth, vehicle, 0.0)
+  end
+  pcall(SetVehicleEngineOn, vehicle, false, true, true)
+  pcall(SetVehicleUndriveable, vehicle, true)
+
+  return true
+end
+
+local function applyDestroyedUndriveable(vehicle, plate)
+  plate = trimScalarString(plate):upper()
+  if plate == '' or not vehicle or vehicle == 0 or not DoesEntityExist(vehicle) then
+    return false
+  end
+
+  logVehicleWorld(('apply destroyed undriveable %s'):format(plate))
+  applyDestroyedVisualOnce(vehicle, plate)
+  enforceDestroyedUndriveable(vehicle)
+
+  CreateThread(function()
+    Wait(500)
+    enforceDestroyedUndriveable(vehicle)
+    Wait(1000)
+    enforceDestroyedUndriveable(vehicle)
+  end)
+
+  return true
+end
+
 local function logSpawnPayloadSnapshot(stage, payload, point, modelHash)
   local pointType = type(point)
   local hasX = point ~= nil and point.x ~= nil
@@ -127,6 +193,8 @@ local function buildSpawnPayload(prepared, payload)
     fuel = tonumber(payload.fuel) or 100,
     engine = tonumber(payload.engine) or 1000,
     body = tonumber(payload.body) or 1000,
+    destroyed = payload.destroyed == true or (type(payload.world) == 'table' and payload.world.destroyed == true),
+    world = type(payload.world) == 'table' and payload.world or nil,
     warp_into_vehicle = payload.warp_into_vehicle == true or MZGaragemConfig.warp_into_vehicle == true
   }
 end
@@ -222,6 +290,10 @@ function MZGaragemSpawn.spawn(prepared, payload)
 
   local exportOk, spawnedOk, spawnedResult, bridgeErr = callVehiclesSpawnExport(spawnPayload)
   if exportOk then
+    if spawnedOk == true and type(spawnedResult) == 'table' and spawnedResult.vehicle then
+      MZGaragemSpawn.finalizeSpawnedVehicle(spawnedResult.vehicle, spawnPayload)
+    end
+
     return spawnedOk, spawnedResult
   end
 
@@ -232,13 +304,30 @@ end
 function MZGaragemSpawn.captureStorePayload(vehicle, runtimeId)
   local props = MZGaragemClientHelpers.getVehicleProperties(vehicle)
   local coords = vehicle and vehicle ~= 0 and DoesEntityExist(vehicle) and GetEntityCoords(vehicle) or nil
+  local engineHealth = vehicle and vehicle ~= 0 and DoesEntityExist(vehicle) and GetVehicleEngineHealth(vehicle) or 1000.0
+  local bodyHealth = vehicle and vehicle ~= 0 and DoesEntityExist(vehicle) and GetVehicleBodyHealth(vehicle) or 1000.0
+  local driveable = true
+  if vehicle and vehicle ~= 0 and DoesEntityExist(vehicle) and type(IsVehicleDriveable) == 'function' then
+    local ok, result = pcall(IsVehicleDriveable, vehicle, false)
+    if ok then
+      driveable = result == true
+    end
+  end
+  local destroyed = vehicle and vehicle ~= 0 and DoesEntityExist(vehicle) and (
+    IsEntityDead(vehicle)
+      or driveable == false
+      or (tonumber(engineHealth) or 1000.0) <= 50.0
+      or (tonumber(bodyHealth) or 1000.0) <= 100.0
+  ) or false
 
   return {
     plate = MZGaragemClientHelpers.getPlate(vehicle),
     props = props,
     fuel = round(GetVehicleFuelLevel(vehicle), 1),
-    engine = round(GetVehicleEngineHealth(vehicle), 1),
-    body = round(GetVehicleBodyHealth(vehicle), 1),
+    engine = round(engineHealth, 1),
+    engine_health = round(engineHealth, 1),
+    body = round(bodyHealth, 1),
+    body_health = round(bodyHealth, 1),
     coords = coords and {
       x = round(coords.x, 3),
       y = round(coords.y, 3),
@@ -246,7 +335,7 @@ function MZGaragemSpawn.captureStorePayload(vehicle, runtimeId)
     } or nil,
     heading = vehicle and vehicle ~= 0 and DoesEntityExist(vehicle) and round(GetEntityHeading(vehicle), 2) or 0.0,
     locked = vehicle and vehicle ~= 0 and DoesEntityExist(vehicle) and GetVehicleDoorLockStatus(vehicle) or 0,
-    destroyed = vehicle and vehicle ~= 0 and DoesEntityExist(vehicle) and (IsEntityDead(vehicle) or GetVehicleEngineHealth(vehicle) <= 0.0) or false,
+    destroyed = destroyed,
     runtime_id = runtimeId,
     net_id = NetworkGetNetworkIdFromEntity(vehicle)
   }
@@ -329,6 +418,7 @@ function MZGaragemSpawn.finalizeSpawnedVehicle(vehicle, data)
 
   SetVehicleDoorsLocked(vehicle, locked and 2 or 1)
   SetVehicleDoorsLockedForAllPlayers(vehicle, locked)
+  local destroyed = data.destroyed == true or (type(data.world) == 'table' and data.world.destroyed == true)
 
   local entityState = Entity(vehicle).state
   if entityState then
@@ -346,13 +436,18 @@ function MZGaragemSpawn.finalizeSpawnedVehicle(vehicle, data)
     end
     entityState:set('mz_locked', locked, true)
     entityState:set('mz_lock_state', locked and 2 or 1, true)
+    entityState:set('mz_destroyed', destroyed, true)
     entityState:set('mz_world_condition', {
       fuel = tonumber(data.fuel) or GetVehicleFuelLevel(vehicle),
       engine = tonumber(data.engine) or GetVehicleEngineHealth(vehicle),
       body = tonumber(data.body) or GetVehicleBodyHealth(vehicle),
       locked = locked,
-      destroyed = data.destroyed == true or (type(data.world) == 'table' and data.world.destroyed == true)
+      destroyed = destroyed
     }, true)
+  end
+
+  if destroyed == true then
+    applyDestroyedUndriveable(vehicle, plate)
   end
 
   logVehicleWorld(('finalize spawn %s locked=%s netId=%s'):format(
@@ -405,6 +500,10 @@ function MZGaragemSpawn.confirmPersistentVehicleSpawn(vehicle, data)
   MZGaragemSpawn.finalizeSpawnedVehicle(vehicle, {
     plate = snapshot.plate,
     locked = snapshot.locked,
+    fuel = snapshot.fuel,
+    engine = snapshot.engine,
+    body = snapshot.body,
+    destroyed = snapshot.destroyed,
     id = type(data) == 'table' and data.id or nil,
     vehicle_id = type(data) == 'table' and data.vehicle_id or nil,
     owner_type = type(data) == 'table' and data.owner_type or nil,
