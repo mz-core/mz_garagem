@@ -94,7 +94,21 @@ local function pruneRuntime(runtime)
   end
 
   if runtime.status == 'active' and tonumber(runtime.net_id or 0) > 0 then
-    if not NetworkDoesNetworkIdExist(runtime.net_id) then
+    local entity = 0
+    if type(NetworkGetEntityFromNetworkId) == 'function' then
+      local ok, result = pcall(NetworkGetEntityFromNetworkId, runtime.net_id)
+      if ok then
+        entity = result or 0
+      end
+    end
+
+    local exists = entity and entity ~= 0
+    if exists and type(DoesEntityExist) == 'function' then
+      local existsOk, existsResult = pcall(DoesEntityExist, entity)
+      exists = existsOk and existsResult == true
+    end
+
+    if not exists then
       removeRuntime(runtime.runtime_id)
       return nil
     end

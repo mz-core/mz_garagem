@@ -59,6 +59,10 @@ local function errorResponse(stage, err, extra)
   return payload
 end
 
+local function NormalizePlate(plate)
+  return tostring(plate or ''):upper():gsub('^%s+', ''):gsub('%s+$', '')
+end
+
 local function canUseVehicleAccessExports()
   return GetResourceState('mz_vehicles') == 'started'
 end
@@ -68,7 +72,7 @@ local function grantVehicleAccess(source, access, payload)
     return
   end
 
-  local plate = tostring(payload.plate or '')
+  local plate = NormalizePlate(payload.plate)
   if plate == '' then
     return
   end
@@ -88,12 +92,38 @@ local function grantVehicleAccess(source, access, payload)
   end
 end
 
+local function grantRespawnVehicleAccess(source, vehicleData)
+  if not canUseVehicleAccessExports() or type(vehicleData) ~= 'table' then
+    return
+  end
+
+  local plate = NormalizePlate(vehicleData.plate)
+  if plate == '' then
+    return
+  end
+
+  local ok, err = pcall(function()
+    exports['mz_vehicles']:GrantVehicleAccess(source, plate, {
+      kind = tostring(vehicleData.owner_type or 'persistent'),
+      garage_id = tostring(vehicleData.garage or ''),
+      owner_type = vehicleData.owner_type and tostring(vehicleData.owner_type) or nil,
+      owner_id = vehicleData.owner_id and tostring(vehicleData.owner_id) or nil,
+      model = tostring(vehicleData.vehicle_model or vehicleData.model or ''),
+      persistent = true
+    })
+  end)
+
+  if not ok then
+    logGarageFlow('vehicle_access', source, 'respawn_grant_failed', err)
+  end
+end
+
 local function revokeVehicleAccess(source, plate)
   if not canUseVehicleAccessExports() then
     return
   end
 
-  local normalizedPlate = tostring(plate or '')
+  local normalizedPlate = NormalizePlate(plate)
   if normalizedPlate == '' then
     return
   end
@@ -144,8 +174,21 @@ local function validateStorePosition(source, access, payload)
   local vehicleCoords = nil
 
   if netId > 0 then
-    local entity = NetworkGetEntityFromNetworkId(netId)
-    if entity and entity ~= 0 and DoesEntityExist(entity) then
+    local entity = 0
+    if type(NetworkGetEntityFromNetworkId) == 'function' then
+      local ok, result = pcall(NetworkGetEntityFromNetworkId, netId)
+      if ok then
+        entity = result or 0
+      end
+    end
+
+    local exists = entity and entity ~= 0
+    if exists and type(DoesEntityExist) == 'function' then
+      local existsOk, existsResult = pcall(DoesEntityExist, entity)
+      exists = existsOk and existsResult == true
+    end
+
+    if exists then
       vehicleCoords = GetEntityCoords(entity)
     end
   end
@@ -330,6 +373,43 @@ lib.callback.register('mz_garagem:server:rollbackWithdraw', function(source, gar
 
   revokeVehicleAccess(source, plate)
   return { ok = true }
+end)
+
+lib.callback.register('mz_garagem:server:getOutVehiclesForRespawn', function(source)
+  local ok, vehicles = exports['mz_core']:GetOutVehiclesForRespawn(source)
+  if not ok then
+    return {
+      ok = false,
+      error = vehicles
+    }
+  end
+
+  for _, vehicleData in ipairs(vehicles or {}) do
+    grantRespawnVehicleAccess(source, vehicleData)
+  end
+
+  return {
+    ok = true,
+    vehicles = vehicles or {}
+  }
+end)
+
+RegisterNetEvent('mz_garagem:server:persistentVehicleSpawned', function(plate, netId, snapshot)
+  local src = source
+  snapshot = type(snapshot) == 'table' and snapshot or {}
+  snapshot.net_id = tonumber(netId or snapshot.net_id or snapshot.netId) or 0
+  exports['mz_core']:RegisterOutVehicleEntity(src, plate, snapshot.net_id, snapshot)
+end)
+
+RegisterNetEvent('mz_garagem:server:persistentVehicleSnapshot', function(plate, snapshot)
+  local src = source
+  snapshot = type(snapshot) == 'table' and snapshot or {}
+  if snapshot.destroyed == true then
+    exports['mz_core']:MarkOutVehicleDestroyed(src, plate, snapshot)
+    return
+  end
+
+  exports['mz_core']:UpdateOutVehicleSnapshot(src, plate, snapshot)
 end)
 
 RegisterNetEvent('mz_garagem:server:serviceConfirmSpawn', function(runtimeId, netId)

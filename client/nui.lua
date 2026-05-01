@@ -210,6 +210,8 @@ local function handleWithdraw(entryId)
       vehicle = spawned.vehicle,
       net_id = spawned.net_id
     }
+  elseif response.spawn.kind == 'persistent' and spawned.vehicle then
+    MZGaragemSpawn.confirmPersistentVehicleSpawn(spawned.vehicle)
   end
 
   MZGaragemNUI.busy = false

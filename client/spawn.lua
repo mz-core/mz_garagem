@@ -61,6 +61,10 @@ local function logSpawnBridgeError(message, detail)
   ))
 end
 
+local function logVehicleWorld(message)
+  print(('[mz_vehicle_world] %s'):format(tostring(message or '')))
+end
+
 local function logSpawnPayloadSnapshot(stage, payload, point, modelHash)
   local pointType = type(point)
   local hasX = point ~= nil and point.x ~= nil
@@ -227,6 +231,7 @@ end
 
 function MZGaragemSpawn.captureStorePayload(vehicle, runtimeId)
   local props = MZGaragemClientHelpers.getVehicleProperties(vehicle)
+  local coords = vehicle and vehicle ~= 0 and DoesEntityExist(vehicle) and GetEntityCoords(vehicle) or nil
 
   return {
     plate = MZGaragemClientHelpers.getPlate(vehicle),
@@ -234,7 +239,255 @@ function MZGaragemSpawn.captureStorePayload(vehicle, runtimeId)
     fuel = round(GetVehicleFuelLevel(vehicle), 1),
     engine = round(GetVehicleEngineHealth(vehicle), 1),
     body = round(GetVehicleBodyHealth(vehicle), 1),
+    coords = coords and {
+      x = round(coords.x, 3),
+      y = round(coords.y, 3),
+      z = round(coords.z, 3)
+    } or nil,
+    heading = vehicle and vehicle ~= 0 and DoesEntityExist(vehicle) and round(GetEntityHeading(vehicle), 2) or 0.0,
+    locked = vehicle and vehicle ~= 0 and DoesEntityExist(vehicle) and GetVehicleDoorLockStatus(vehicle) or 0,
+    destroyed = vehicle and vehicle ~= 0 and DoesEntityExist(vehicle) and (IsEntityDead(vehicle) or GetVehicleEngineHealth(vehicle) <= 0.0) or false,
     runtime_id = runtimeId,
     net_id = NetworkGetNetworkIdFromEntity(vehicle)
   }
+end
+
+local function findVehicleByPlate(plate)
+  plate = trimScalarString(plate):upper()
+  if plate == '' then
+    return 0
+  end
+
+  for _, vehicle in ipairs(GetGamePool('CVehicle')) do
+    if DoesEntityExist(vehicle) and MZGaragemClientHelpers.getPlate(vehicle) == plate then
+      return vehicle
+    end
+  end
+
+  return 0
+end
+
+local function normalizeLockValue(value, oneMeansLocked)
+  if value == true then
+    return true
+  end
+
+  local numeric = tonumber(value)
+  if numeric == nil then
+    return false
+  end
+
+  if numeric == 1 then
+    return oneMeansLocked == true
+  end
+
+  return numeric ~= 0
+end
+
+function MZGaragemSpawn.finalizeSpawnedVehicle(vehicle, data)
+  if not vehicle or vehicle == 0 or not DoesEntityExist(vehicle) then
+    return false, 'entity_not_found'
+  end
+
+  data = type(data) == 'table' and data or {}
+  local world = type(data.world) == 'table' and data.world or {}
+  local plate = trimScalarString(data.plate):upper()
+  if plate == '' then
+    plate = MZGaragemClientHelpers.getPlate(vehicle)
+  end
+
+  if plate ~= '' then
+    SetVehicleNumberPlateText(vehicle, plate)
+  end
+
+  if type(data.props) == 'table' and GetResourceState('mz_vehicles') == 'started' then
+    pcall(function()
+      exports['mz_vehicles']:SetVehicleProperties(vehicle, data.props)
+    end)
+  end
+
+  if data.fuel ~= nil then
+    SetVehicleFuelLevel(vehicle, (tonumber(data.fuel) or 100) + 0.0)
+  end
+
+  if data.engine ~= nil then
+    SetVehicleEngineHealth(vehicle, (tonumber(data.engine) or 1000) + 0.0)
+  end
+
+  if data.body ~= nil then
+    SetVehicleBodyHealth(vehicle, (tonumber(data.body) or 1000) + 0.0)
+  end
+
+  local locked
+  if world.locked ~= nil then
+    locked = normalizeLockValue(world.locked, true)
+  elseif data.locked ~= nil then
+    locked = normalizeLockValue(data.locked, false)
+  else
+    locked = GetVehicleDoorLockStatus(vehicle) ~= 0 and GetVehicleDoorLockStatus(vehicle) ~= 1
+  end
+
+  SetVehicleDoorsLocked(vehicle, locked and 2 or 1)
+  SetVehicleDoorsLockedForAllPlayers(vehicle, locked)
+
+  local entityState = Entity(vehicle).state
+  if entityState then
+    entityState:set('mz_plate', plate, true)
+    entityState:set('mz_persistent', true, true)
+    local vehicleId = tonumber(data.id or data.vehicle_id)
+    if vehicleId then
+      entityState:set('mz_vehicle_id', vehicleId, true)
+    end
+    if data.owner_type ~= nil and tostring(data.owner_type) ~= '' then
+      entityState:set('mz_owner_type', tostring(data.owner_type), true)
+    end
+    if data.owner_id ~= nil and tostring(data.owner_id) ~= '' then
+      entityState:set('mz_owner_id', tostring(data.owner_id), true)
+    end
+    entityState:set('mz_locked', locked, true)
+    entityState:set('mz_lock_state', locked and 2 or 1, true)
+    entityState:set('mz_world_condition', {
+      fuel = tonumber(data.fuel) or GetVehicleFuelLevel(vehicle),
+      engine = tonumber(data.engine) or GetVehicleEngineHealth(vehicle),
+      body = tonumber(data.body) or GetVehicleBodyHealth(vehicle),
+      locked = locked,
+      destroyed = data.destroyed == true or (type(data.world) == 'table' and data.world.destroyed == true)
+    }, true)
+  end
+
+  logVehicleWorld(('finalize spawn %s locked=%s netId=%s'):format(
+    plate,
+    tostring(locked),
+    tostring(NetworkGetNetworkIdFromEntity(vehicle))
+  ))
+  logVehicleWorld(('lock state applied %s locked=%s'):format(plate, tostring(locked)))
+
+  return true, {
+    plate = plate,
+    locked = locked,
+    net_id = NetworkGetNetworkIdFromEntity(vehicle)
+  }
+end
+
+function MZGaragemSpawn.capturePersistentSnapshot(vehicle)
+  if not vehicle or vehicle == 0 or not DoesEntityExist(vehicle) then
+    return nil
+  end
+
+  local payload = MZGaragemSpawn.captureStorePayload(vehicle)
+  if not payload or tostring(payload.plate or '') == '' then
+    return nil
+  end
+
+  return payload
+end
+
+function MZGaragemSpawn.reportPersistentVehicle(vehicle)
+  local snapshot = MZGaragemSpawn.capturePersistentSnapshot(vehicle)
+  if not snapshot then
+    return false
+  end
+
+  TriggerServerEvent('mz_garagem:server:persistentVehicleSnapshot', snapshot.plate, snapshot)
+  return true
+end
+
+function MZGaragemSpawn.confirmPersistentVehicleSpawn(vehicle, data)
+  if type(data) == 'table' then
+    MZGaragemSpawn.finalizeSpawnedVehicle(vehicle, data)
+  end
+
+  local snapshot = MZGaragemSpawn.capturePersistentSnapshot(vehicle)
+  if not snapshot then
+    return false
+  end
+
+  MZGaragemSpawn.finalizeSpawnedVehicle(vehicle, {
+    plate = snapshot.plate,
+    locked = snapshot.locked,
+    id = type(data) == 'table' and data.id or nil,
+    vehicle_id = type(data) == 'table' and data.vehicle_id or nil,
+    owner_type = type(data) == 'table' and data.owner_type or nil,
+    owner_id = type(data) == 'table' and data.owner_id or nil
+  })
+
+  TriggerServerEvent('mz_garagem:server:persistentVehicleSpawned', snapshot.plate, snapshot.net_id, snapshot)
+  return true
+end
+
+function MZGaragemSpawn.respawnPersistentVehicle(data)
+  if type(data) ~= 'table' then
+    return false, 'invalid_payload'
+  end
+
+  local plate = trimScalarString(data.plate):upper()
+  if plate == '' then
+    return false, 'invalid_plate'
+  end
+
+  local existing = findVehicleByPlate(plate)
+  if existing ~= 0 then
+    logVehicleWorld(('skip duplicate %s'):format(plate))
+    MZGaragemSpawn.confirmPersistentVehicleSpawn(existing, data)
+    return true, {
+      vehicle = existing,
+      plate = plate,
+      net_id = NetworkGetNetworkIdFromEntity(existing)
+    }
+  end
+
+  local world = type(data.world) == 'table' and data.world or {}
+  local coords = type(world.last_coords) == 'table' and world.last_coords or nil
+  if not coords or coords.x == nil or coords.y == nil or coords.z == nil then
+    logVehicleWorld(('respawn failed %s missing_coords'):format(plate))
+    return false, 'missing_coords'
+  end
+
+  logVehicleWorld(('respawn attempt %s %s %.3f %.3f %.3f'):format(
+    plate,
+    tostring(data.model or ''),
+    tonumber(coords.x) or 0.0,
+    tonumber(coords.y) or 0.0,
+    tonumber(coords.z) or 0.0
+  ))
+
+  local modelHash, modelErr = MZGaragemClientHelpers.loadModel(data.model)
+  if not modelHash then
+    logVehicleWorld(('respawn failed %s %s'):format(plate, tostring(modelErr or 'invalid_model')))
+    return false, modelErr or 'invalid_model'
+  end
+
+  local spawnPayload = {
+    vehicle_model = trimScalarString(data.model),
+    model_hash = modelHash,
+    spawn_point = {
+      x = tonumber(coords.x) or 0.0,
+      y = tonumber(coords.y) or 0.0,
+      z = tonumber(coords.z) or 0.0,
+      w = tonumber(world.last_heading) or 0.0
+    },
+    props = type(data.props) == 'table' and data.props or {},
+    plate = plate,
+    fuel = tonumber(data.fuel) or 100,
+    engine = tonumber(data.engine) or 1000,
+    body = tonumber(data.body) or 1000,
+    warp_into_vehicle = false,
+    engine_on = false
+  }
+
+  local exportOk, spawnedOk, spawnedResult, bridgeErr = callVehiclesSpawnExport(spawnPayload)
+  if not exportOk then
+    SetModelAsNoLongerNeeded(modelHash)
+    logVehicleWorld(('respawn failed %s %s'):format(plate, tostring(bridgeErr or 'mz_vehicles_spawn_failed')))
+    return false, bridgeErr or 'mz_vehicles_spawn_failed'
+  end
+
+  if spawnedOk ~= true or type(spawnedResult) ~= 'table' or not spawnedResult.vehicle then
+    logVehicleWorld(('respawn failed %s %s'):format(plate, tostring(spawnedResult or 'spawn_failed')))
+    return false, spawnedResult or 'spawn_failed'
+  end
+
+  MZGaragemSpawn.confirmPersistentVehicleSpawn(spawnedResult.vehicle, data)
+  logVehicleWorld(('respawn success %s %s'):format(plate, tostring(NetworkGetNetworkIdFromEntity(spawnedResult.vehicle))))
+  return true, spawnedResult
 end

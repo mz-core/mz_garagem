@@ -12,6 +12,13 @@ local function getGarageCoords(garage)
   return nil
 end
 
+local PersistentRespawnState = {
+  requested = false,
+  running = false,
+  lastVehicle = 0,
+  lastSnapshotAt = 0
+}
+
 local function getStoreConfig(garage)
   if type(garage) ~= 'table' or type(garage.store) ~= 'table' or garage.store.enabled ~= true then
     return nil
@@ -416,6 +423,67 @@ function MZGaragemClient.storeNearbyVehicle(garageId)
 
   return storeVehicleEntity(garage, vehicle)
 end
+
+local function requestPersistentRespawn()
+  if PersistentRespawnState.running == true then
+    return
+  end
+
+  PersistentRespawnState.requested = true
+  PersistentRespawnState.running = true
+
+  CreateThread(function()
+    Wait(3000)
+    TriggerServerEvent('mz_core:vehicles:server:playerWorldReady')
+
+    PersistentRespawnState.running = false
+    PersistentRespawnState.requested = false
+  end)
+end
+
+RegisterNetEvent('mz_core:client:playerLoaded', function()
+  requestPersistentRespawn()
+end)
+
+CreateThread(function()
+  Wait(6000)
+  requestPersistentRespawn()
+end)
+
+CreateThread(function()
+  while true do
+    local ped = PlayerPedId()
+    local vehicle = GetVehiclePedIsIn(ped, false)
+
+    if PersistentRespawnState.lastVehicle ~= 0 and PersistentRespawnState.lastVehicle ~= vehicle then
+      MZGaragemSpawn.reportPersistentVehicle(PersistentRespawnState.lastVehicle)
+      PersistentRespawnState.lastVehicle = 0
+      PersistentRespawnState.lastSnapshotAt = GetGameTimer()
+    end
+
+    if vehicle ~= 0 and DoesEntityExist(vehicle) and GetPedInVehicleSeat(vehicle, -1) == ped then
+      PersistentRespawnState.lastVehicle = vehicle
+
+      local now = GetGameTimer()
+      if (now - (PersistentRespawnState.lastSnapshotAt or 0)) >= 45000 then
+        MZGaragemSpawn.reportPersistentVehicle(vehicle)
+        PersistentRespawnState.lastSnapshotAt = now
+      end
+    end
+
+    Wait(5000)
+  end
+end)
+
+AddEventHandler('onResourceStop', function(resourceName)
+  if resourceName ~= GetCurrentResourceName() then
+    return
+  end
+
+  if PersistentRespawnState.lastVehicle ~= 0 then
+    MZGaragemSpawn.reportPersistentVehicle(PersistentRespawnState.lastVehicle)
+  end
+end)
 
 CreateThread(function()
   refreshLegacyBlips()
