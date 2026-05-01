@@ -148,6 +148,62 @@ local function shouldUseLegacyInteraction()
   return true
 end
 
+local legacyBlips = {}
+
+local function removeLegacyBlips()
+  for garageId, blip in pairs(legacyBlips) do
+    if blip and DoesBlipExist(blip) then
+      RemoveBlip(blip)
+    end
+
+    legacyBlips[garageId] = nil
+  end
+end
+
+local function createLegacyBlip(garageId, garage)
+  if legacyBlips[garageId] and DoesBlipExist(legacyBlips[garageId]) then
+    return
+  end
+
+  local blipConfig = type(garage.blip) == 'table' and garage.blip or {}
+  if garage.blip == false or blipConfig.enabled ~= true then
+    return
+  end
+
+  local coords = getGarageCoords(garage)
+  if not coords then
+    return
+  end
+
+  local blip = AddBlipForCoord(coords.x, coords.y, coords.z)
+  SetBlipSprite(blip, tonumber(blipConfig.sprite or garage.blipSprite) or 357)
+  SetBlipColour(blip, tonumber(blipConfig.color or garage.blipColor) or 38)
+  SetBlipScale(blip, (tonumber(blipConfig.scale or garage.blipScale) or 0.6) + 0.0)
+  SetBlipAsShortRange(blip, blipConfig.shortRange ~= false)
+
+  if blipConfig.display then
+    SetBlipDisplay(blip, tonumber(blipConfig.display) or 4)
+  end
+
+  BeginTextCommandSetBlipName('STRING')
+  AddTextComponentSubstringPlayerName(tostring(blipConfig.label or garage.label or garage.name or 'Garagem'))
+  EndTextCommandSetBlipName(blip)
+
+  legacyBlips[garageId] = blip
+end
+
+local function refreshLegacyBlips()
+  if isMzInteractActive() or MZGaragemConfig.FallbackToLegacyMarkers ~= true then
+    removeLegacyBlips()
+    return
+  end
+
+  for garageId, garage in pairs(MZGaragemGarages or {}) do
+    garage.id = garage.id or garageId
+    createLegacyBlip(garageId, garage)
+  end
+end
+
 local function logOpenGarageClient(stage, garage, detail)
   garage = type(garage) == 'table' and garage or {}
   detail = type(detail) == 'table' and detail or {}
@@ -362,6 +418,8 @@ function MZGaragemClient.storeNearbyVehicle(garageId)
 end
 
 CreateThread(function()
+  refreshLegacyBlips()
+
   while true do
     local sleep = 500
 
@@ -412,6 +470,13 @@ end)
 
 CreateThread(function()
   while true do
+    refreshLegacyBlips()
+    Wait(2500)
+  end
+end)
+
+CreateThread(function()
+  while true do
     Wait(tonumber(MZGaragemConfig.service.runtime_cleanup_interval_ms or 2000) or 2000)
 
     local toRemove = {}
@@ -436,4 +501,6 @@ AddEventHandler('onResourceStop', function(resourceName)
   if MZGaragemNUI.isOpen then
     MZGaragemNUI.close()
   end
+
+  removeLegacyBlips()
 end)

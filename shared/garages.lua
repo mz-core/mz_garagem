@@ -14,7 +14,7 @@ MZGaragemGarages = {
     blip = {
       enabled = true,
       sprite = 357,
-      color = 3,
+      color = 38,
       scale = 0.6,
       label = 'Public Airport'
     },
@@ -79,7 +79,7 @@ MZGaragemGarages = {
     blip = {
       enabled = true,
       sprite = 357,
-      color = 3,
+      color = 38,
       scale = 0.6,
       label = 'Public Garage'
     },
