@@ -3,7 +3,7 @@ game 'gta5'
 lua54 'yes'
 
 name 'mz_garagem'
-author 'mz-core'
+author 'Mazus'
 description 'Garage v1 integrated with mz_core'
 version '0.1.0'
 
