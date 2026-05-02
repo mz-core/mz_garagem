@@ -1,6 +1,8 @@
 MZGaragemSpawn = MZGaragemSpawn or {}
 
 local DestroyedVisualApplied = {}
+local InitialDestroyedProtectionByPlate = {}
+local INITIAL_DESTROYED_PROTECTION_MS = 7000
 
 local function round(value, decimals)
   local power = 10 ^ (decimals or 0)
@@ -31,6 +33,35 @@ local function normalizeNumber(value)
   end
 
   return numericValue + 0.0
+end
+
+local function normalizeVehicleHealth(value)
+  local numericValue = tonumber(value)
+  if numericValue == nil then
+    return 1000.0
+  end
+
+  if numericValue < 0.0 then
+    return 0.0
+  end
+
+  if numericValue <= 100.0 then
+    return numericValue * 10.0
+  end
+
+  if numericValue > 1000.0 then
+    return 1000.0
+  end
+
+  return numericValue + 0.0
+end
+
+local function getPayloadTankHealth(payload)
+  if type(payload) ~= 'table' then
+    return nil
+  end
+
+  return payload.tank or payload.tank_health or payload.petrol_tank_health or payload.petrolTankHealth
 end
 
 local function normalizeSpawnPoint(point)
@@ -173,6 +204,35 @@ local function logSpawnPayloadSnapshot(stage, payload, point, modelHash)
   ))
 end
 
+local function logHealthNormalization(stage, rawEngine, rawBody, rawTank, engine, body, tank)
+  if not isGarageDebug() then
+    return
+  end
+
+  print(('[mz_garagem][spawn][%s] raw_engine=%s | raw_body=%s | raw_tank=%s | normalized_engine=%s | normalized_body=%s | normalized_tank=%s'):format(
+    tostring(stage or 'health'),
+    tostring(rawEngine),
+    tostring(rawBody),
+    tostring(rawTank),
+    tostring(engine),
+    tostring(body),
+    tostring(tank)
+  ))
+end
+
+local function logDestroyedResolution(payloadDestroyed, snapshotDestroyed, finalDestroyed, ignoredInitialDestroyed)
+  if not isGarageDebug() then
+    return
+  end
+
+  print(('[mz_garagem][spawn][confirm] payload_destroyed=%s | snapshot_destroyed=%s | final_destroyed=%s | ignored_initial_destroyed=%s'):format(
+    tostring(payloadDestroyed),
+    tostring(snapshotDestroyed),
+    tostring(finalDestroyed),
+    tostring(ignoredInitialDestroyed)
+  ))
+end
+
 local function buildSpawnPayload(prepared, payload)
   local rawPoint = nil
   if type(payload) == 'table' and payload.spawn_point ~= nil then
@@ -196,6 +256,15 @@ local function buildSpawnPayload(prepared, payload)
     return nil, 'invalid_spawn_payload'
   end
 
+  local rawEngine = payload.engine
+  local rawBody = payload.body
+  local rawTank = getPayloadTankHealth(payload)
+  local engine = normalizeVehicleHealth(rawEngine)
+  local body = normalizeVehicleHealth(rawBody)
+  local tank = normalizeVehicleHealth(rawTank)
+
+  logHealthNormalization('build_payload', rawEngine, rawBody, rawTank, engine, body, tank)
+
   return {
     vehicle_model = vehicleModel,
     model_hash = modelHash,
@@ -203,8 +272,9 @@ local function buildSpawnPayload(prepared, payload)
     props = type(payload.props) == 'table' and payload.props or {},
     plate = plate,
     fuel = tonumber(payload.fuel) or 100,
-    engine = tonumber(payload.engine) or 1000,
-    body = tonumber(payload.body) or 1000,
+    engine = engine,
+    body = body,
+    tank = tank,
     destroyed = payload.destroyed == true or (type(payload.world) == 'table' and payload.world.destroyed == true),
     world = type(payload.world) == 'table' and payload.world or nil,
     warp_into_vehicle = payload.warp_into_vehicle == true or MZGaragemConfig.warp_into_vehicle == true
@@ -304,6 +374,10 @@ function MZGaragemSpawn.spawn(prepared, payload)
   if exportOk then
     if spawnedOk == true and type(spawnedResult) == 'table' and spawnedResult.vehicle then
       MZGaragemSpawn.finalizeSpawnedVehicle(spawnedResult.vehicle, spawnPayload)
+      InitialDestroyedProtectionByPlate[trimScalarString(spawnPayload.plate):upper()] = {
+        destroyed = spawnPayload.destroyed == true,
+        expires_at = GetGameTimer() + INITIAL_DESTROYED_PROTECTION_MS
+      }
     end
 
     return spawnedOk, spawnedResult
@@ -412,11 +486,16 @@ function MZGaragemSpawn.finalizeSpawnedVehicle(vehicle, data)
   end
 
   if data.engine ~= nil then
-    SetVehicleEngineHealth(vehicle, (tonumber(data.engine) or 1000) + 0.0)
+    SetVehicleEngineHealth(vehicle, normalizeVehicleHealth(data.engine))
   end
 
   if data.body ~= nil then
-    SetVehicleBodyHealth(vehicle, (tonumber(data.body) or 1000) + 0.0)
+    SetVehicleBodyHealth(vehicle, normalizeVehicleHealth(data.body))
+  end
+
+  local tankHealth = getPayloadTankHealth(data)
+  if tankHealth ~= nil and type(SetVehiclePetrolTankHealth) == 'function' then
+    SetVehiclePetrolTankHealth(vehicle, normalizeVehicleHealth(tankHealth))
   end
 
   local locked
@@ -451,8 +530,9 @@ function MZGaragemSpawn.finalizeSpawnedVehicle(vehicle, data)
     entityState:set('mz_destroyed', destroyed, true)
     entityState:set('mz_world_condition', {
       fuel = tonumber(data.fuel) or GetVehicleFuelLevel(vehicle),
-      engine = tonumber(data.engine) or GetVehicleEngineHealth(vehicle),
-      body = tonumber(data.body) or GetVehicleBodyHealth(vehicle),
+      engine = data.engine ~= nil and normalizeVehicleHealth(data.engine) or GetVehicleEngineHealth(vehicle),
+      body = data.body ~= nil and normalizeVehicleHealth(data.body) or GetVehicleBodyHealth(vehicle),
+      tank = tankHealth ~= nil and normalizeVehicleHealth(tankHealth) or nil,
       locked = locked,
       destroyed = destroyed
     }, true)
@@ -500,6 +580,10 @@ function MZGaragemSpawn.reportPersistentVehicle(vehicle)
 end
 
 function MZGaragemSpawn.confirmPersistentVehicleSpawn(vehicle, data)
+  local payloadDestroyed = type(data) == 'table'
+    and (data.destroyed == true or (type(data.world) == 'table' and data.world.destroyed == true))
+    or nil
+
   if type(data) == 'table' then
     MZGaragemSpawn.finalizeSpawnedVehicle(vehicle, data)
   end
@@ -509,13 +593,37 @@ function MZGaragemSpawn.confirmPersistentVehicleSpawn(vehicle, data)
     return false
   end
 
+  local snapshotDestroyed = snapshot.destroyed == true
+  local plate = trimScalarString(snapshot.plate):upper()
+  local protection = InitialDestroyedProtectionByPlate[plate]
+  local protectionActive = type(protection) == 'table' and GetGameTimer() <= (tonumber(protection.expires_at) or 0)
+  if type(protection) == 'table' and not protectionActive then
+    InitialDestroyedProtectionByPlate[plate] = nil
+  end
+
+  if protectionActive and payloadDestroyed == nil then
+    payloadDestroyed = protection.destroyed == true
+  end
+
+  local ignoredInitialDestroyed = protectionActive and payloadDestroyed == false and snapshotDestroyed == true
+  local finalDestroyed = snapshotDestroyed
+  if payloadDestroyed ~= nil then
+    finalDestroyed = payloadDestroyed == true
+    if ignoredInitialDestroyed then
+      snapshot.destroyed = false
+    end
+  end
+
+  logDestroyedResolution(payloadDestroyed, snapshotDestroyed, finalDestroyed, ignoredInitialDestroyed)
+
   MZGaragemSpawn.finalizeSpawnedVehicle(vehicle, {
     plate = snapshot.plate,
     locked = snapshot.locked,
     fuel = snapshot.fuel,
-    engine = snapshot.engine,
-    body = snapshot.body,
-    destroyed = snapshot.destroyed,
+    engine = type(data) == 'table' and data.engine or snapshot.engine,
+    body = type(data) == 'table' and data.body or snapshot.body,
+    tank = type(data) == 'table' and getPayloadTankHealth(data) or getPayloadTankHealth(snapshot),
+    destroyed = finalDestroyed,
     id = type(data) == 'table' and data.id or nil,
     vehicle_id = type(data) == 'table' and data.vehicle_id or nil,
     owner_type = type(data) == 'table' and data.owner_type or nil,
