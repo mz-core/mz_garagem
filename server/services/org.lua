@@ -90,13 +90,10 @@ end
 local function buildConditionPayload(vehicle)
   vehicle = type(vehicle) == 'table' and vehicle or {}
   local metadata = type(vehicle.metadata_json) == 'table' and vehicle.metadata_json or {}
-  local condition = type(metadata.condition) == 'table' and metadata.condition or {}
   local world = type(metadata.world) == 'table' and metadata.world or {}
   local engine = tonumber(vehicle.engine) or 1000
   local body = tonumber(vehicle.body) or 1000
-  local destroyed = condition.destroyed == true
-    or world.destroyed == true
-    or engine <= 50.0
+  local destroyed = engine <= 50.0
     or body <= 100.0
 
   return {
@@ -227,7 +224,8 @@ function MZGaragemOrg.store(source, access, payload)
     payload.props or {},
     payload.fuel,
     payload.engine,
-    payload.body
+    payload.body,
+    payload.destroyed
   )
 
   if not storedOk then

@@ -45,5 +45,6 @@ files {
 dependencies {
   'ox_lib',
   'mz_core',
-  'mz_vehicles'
+  'mz_vehicles',
+  'mz_fuel'
 }

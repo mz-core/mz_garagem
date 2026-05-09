@@ -22,6 +22,10 @@ local function canUseVehiclesExports()
   return GetResourceState('mz_vehicles') == 'started'
 end
 
+local function canUseFuelExports()
+  return GetResourceState('mz_fuel') == 'started'
+end
+
 local function isGarageDebug()
   return MZGaragemConfig and MZGaragemConfig.debug == true
 end
@@ -45,10 +49,6 @@ local function normalizeVehicleHealth(value)
     return 0.0
   end
 
-  if numericValue <= 100.0 then
-    return numericValue * 10.0
-  end
-
   if numericValue > 1000.0 then
     return 1000.0
   end
@@ -62,6 +62,56 @@ local function getPayloadTankHealth(payload)
   end
 
   return payload.tank or payload.tank_health or payload.petrol_tank_health or payload.petrolTankHealth
+end
+
+local function clampFuel(value)
+  local fuel = tonumber(value) or 100.0
+  if fuel < 0.0 then
+    return 0.0
+  end
+  if fuel > 100.0 then
+    return 100.0
+  end
+  return fuel + 0.0
+end
+
+local function getVehicleFuel(vehicle)
+  if vehicle and vehicle ~= 0 and DoesEntityExist(vehicle) and canUseFuelExports() then
+    local ok, fuel = pcall(function()
+      return exports['mz_fuel']:GetFuel(vehicle)
+    end)
+
+    if ok and tonumber(fuel) ~= nil then
+      return clampFuel(fuel)
+    end
+  end
+
+  if vehicle and vehicle ~= 0 and DoesEntityExist(vehicle) then
+    return clampFuel(GetVehicleFuelLevel(vehicle))
+  end
+
+  return 100.0
+end
+
+local function setVehicleFuel(vehicle, fuel)
+  if not vehicle or vehicle == 0 or not DoesEntityExist(vehicle) then
+    return false
+  end
+
+  fuel = clampFuel(fuel)
+
+  if canUseFuelExports() then
+    local ok, result = pcall(function()
+      return exports['mz_fuel']:SetFuel(vehicle, fuel)
+    end)
+
+    if ok and result ~= false then
+      return true
+    end
+  end
+
+  SetVehicleFuelLevel(vehicle, fuel)
+  return true
 end
 
 local function normalizeSpawnPoint(point)
@@ -389,19 +439,18 @@ end
 
 function MZGaragemSpawn.captureStorePayload(vehicle, runtimeId)
   local props = MZGaragemClientHelpers.getVehicleProperties(vehicle)
+  if type(props) == 'table' then
+    props.engineHealth = nil
+    props.bodyHealth = nil
+    props.tankHealth = nil
+    props.fuelLevel = nil
+  end
+
   local coords = vehicle and vehicle ~= 0 and DoesEntityExist(vehicle) and GetEntityCoords(vehicle) or nil
   local engineHealth = vehicle and vehicle ~= 0 and DoesEntityExist(vehicle) and GetVehicleEngineHealth(vehicle) or 1000.0
   local bodyHealth = vehicle and vehicle ~= 0 and DoesEntityExist(vehicle) and GetVehicleBodyHealth(vehicle) or 1000.0
-  local driveable = true
-  if vehicle and vehicle ~= 0 and DoesEntityExist(vehicle) and type(IsVehicleDriveable) == 'function' then
-    local ok, result = pcall(IsVehicleDriveable, vehicle, false)
-    if ok then
-      driveable = result == true
-    end
-  end
   local destroyed = vehicle and vehicle ~= 0 and DoesEntityExist(vehicle) and (
     IsEntityDead(vehicle)
-      or driveable == false
       or (tonumber(engineHealth) or 1000.0) <= 50.0
       or (tonumber(bodyHealth) or 1000.0) <= 100.0
   ) or false
@@ -409,11 +458,9 @@ function MZGaragemSpawn.captureStorePayload(vehicle, runtimeId)
   return {
     plate = MZGaragemClientHelpers.getPlate(vehicle),
     props = props,
-    fuel = round(GetVehicleFuelLevel(vehicle), 1),
+    fuel = round(getVehicleFuel(vehicle), 1),
     engine = round(engineHealth, 1),
-    engine_health = round(engineHealth, 1),
     body = round(bodyHealth, 1),
-    body_health = round(bodyHealth, 1),
     coords = coords and {
       x = round(coords.x, 3),
       y = round(coords.y, 3),
@@ -482,7 +529,7 @@ function MZGaragemSpawn.finalizeSpawnedVehicle(vehicle, data)
   end
 
   if data.fuel ~= nil then
-    SetVehicleFuelLevel(vehicle, (tonumber(data.fuel) or 100) + 0.0)
+    setVehicleFuel(vehicle, data.fuel)
   end
 
   if data.engine ~= nil then
@@ -529,7 +576,7 @@ function MZGaragemSpawn.finalizeSpawnedVehicle(vehicle, data)
     entityState:set('mz_lock_state', locked and 2 or 1, true)
     entityState:set('mz_destroyed', destroyed, true)
     entityState:set('mz_world_condition', {
-      fuel = tonumber(data.fuel) or GetVehicleFuelLevel(vehicle),
+      fuel = tonumber(data.fuel) or getVehicleFuel(vehicle),
       engine = data.engine ~= nil and normalizeVehicleHealth(data.engine) or GetVehicleEngineHealth(vehicle),
       body = data.body ~= nil and normalizeVehicleHealth(data.body) or GetVehicleBodyHealth(vehicle),
       tank = tankHealth ~= nil and normalizeVehicleHealth(tankHealth) or nil,
