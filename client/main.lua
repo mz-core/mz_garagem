@@ -425,20 +425,7 @@ function MZGaragemClient.storeNearbyVehicle(garageId)
 end
 
 local function requestPersistentRespawn()
-  if PersistentRespawnState.running == true then
-    return
-  end
-
-  PersistentRespawnState.requested = true
-  PersistentRespawnState.running = true
-
-  CreateThread(function()
-    Wait(3000)
-    TriggerServerEvent('mz_core:vehicles:server:playerWorldReady')
-
-    PersistentRespawnState.running = false
-    PersistentRespawnState.requested = false
-  end)
+  return
 end
 
 RegisterNetEvent('mz_core:client:playerLoaded', function()
