@@ -56,6 +56,10 @@ local function getNotifyTitle(customTitle)
   return tostring(MZGaragemConfig.ui and MZGaragemConfig.ui.title or 'Garagem')
 end
 
+local function isGarageDebug()
+  return MZGaragemConfig and MZGaragemConfig.debug == true
+end
+
 local function canUseVehiclesExports()
   return GetResourceState('mz_vehicles') == 'started'
 end
@@ -68,6 +72,10 @@ local function logVehiclesBridgeError(exportName, err)
 end
 
 local function logDeleteBridge(stage, rawVehicle, normalizedVehicle)
+  if not isGarageDebug() then
+    return
+  end
+
   local rawExists = rawVehicle ~= nil and rawVehicle ~= 0 and DoesEntityExist(rawVehicle) or false
   local normalizedExists = normalizedVehicle ~= 0 and DoesEntityExist(normalizedVehicle) or false
 
@@ -274,7 +282,7 @@ function MZGaragemClientHelpers.findAvailableSpawnPoint(garage)
   for _, radius in ipairs(radii) do
     for _, point in ipairs(points) do
       if pointIsFree(point, radius) then
-        if MZGaragemConfig.debug == true then
+        if isGarageDebug() then
           print(('[mz_garagem][spawn] point free (garage:%s radius:%.1f x:%.2f y:%.2f z:%.2f)'):format(
             tostring(garage.id or 'unknown'),
             radius,
@@ -286,7 +294,7 @@ function MZGaragemClientHelpers.findAvailableSpawnPoint(garage)
     end
   end
 
-  if MZGaragemConfig.debug == true then
+  if isGarageDebug() then
     print(('[mz_garagem][spawn] no free spawn point (garage:%s points:%d)'):format(
       tostring(garage.id or 'unknown'),
       #points
@@ -326,6 +334,10 @@ local function chooseBetterNearbyStoreCandidate(currentBest, candidate)
 end
 
 local function logNearbyStoreCandidate(stage, detail)
+  if not isGarageDebug() then
+    return
+  end
+
   detail = type(detail) == 'table' and detail or {}
 
   print(('[mz_garagem][store_nearby][%s] entity=%s | plate=%s | dist_player=%s | dist_garage=%s | is_empty=%s | player_in_vehicle=%s | player_is_driver=%s | discard_reason=%s'):format(

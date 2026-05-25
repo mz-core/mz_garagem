@@ -1,5 +1,5 @@
 local function openGarageList(source, access)
-  if access.kind == 'public' then
+  if access.kind == 'public' or access.kind == 'house' then
     return MZGaragemOwned.list(source, access)
   end
 
@@ -221,13 +221,13 @@ local function validateStorePosition(source, access, payload)
   return false, 'player_too_far_from_garage'
 end
 
-lib.callback.register('mz_garagem:server:openGarage', function(source, garageId)
+lib.callback.register('mz_garagem:server:openGarage', function(source, garageId, context)
   local requestedGarage = MZGaragemAccess.getGarage(garageId)
   logOpenGarageCallback('request', source, requestedGarage, {
     garage_id = tostring(garageId or '')
   })
 
-  local ok, access = MZGaragemAccess.resolve(source, garageId)
+  local ok, access = MZGaragemAccess.resolve(source, garageId, context)
   if not ok then
     logOpenGarageCallback('access_error', source, requestedGarage, {
       garage_id = tostring(garageId or ''),
@@ -253,22 +253,32 @@ lib.callback.register('mz_garagem:server:openGarage', function(source, garageId)
     entries_count = type(entries) == 'table' and #entries or 0
   })
 
+  local garagePayload = MZGaragemDTO.buildGaragePayload(access.garage)
+  if access.kind == 'house' then
+    garagePayload.context = {
+      type = 'house',
+      garageType = 'house',
+      token = context and context.token or access.houseSession and access.houseSession.token or nil,
+      houseCode = access.house and access.house.code or nil
+    }
+  end
+
   return {
     ok = true,
-    garage = MZGaragemDTO.buildGaragePayload(access.garage),
+    garage = garagePayload,
     entries = entries
   }
 end)
 
-lib.callback.register('mz_garagem:server:withdraw', function(source, garageId, entryId)
-  local ok, access = MZGaragemAccess.resolve(source, garageId)
+lib.callback.register('mz_garagem:server:withdraw', function(source, garageId, entryId, context)
+  local ok, access = MZGaragemAccess.resolve(source, garageId, context)
   if not ok then
     logGarageFlow('withdraw', source, access, garageId)
     return errorResponse('server_access', access, { garage_id = tostring(garageId or '') })
   end
 
   local withdrawOk, payload
-  if access.kind == 'public' then
+  if access.kind == 'public' or access.kind == 'house' then
     withdrawOk, payload = MZGaragemOwned.withdraw(source, access, entryId)
   elseif access.kind == 'org' then
     withdrawOk, payload = MZGaragemOrg.withdraw(source, access, entryId)
@@ -294,14 +304,14 @@ lib.callback.register('mz_garagem:server:withdraw', function(source, garageId, e
   return { ok = true, spawn = payload }
 end)
 
-lib.callback.register('mz_garagem:server:releaseImpound', function(source, garageId, plate)
-  local ok, access = MZGaragemAccess.resolve(source, garageId)
+lib.callback.register('mz_garagem:server:releaseImpound', function(source, garageId, plate, context)
+  local ok, access = MZGaragemAccess.resolve(source, garageId, context)
   if not ok then
     return { ok = false, error = access }
   end
 
   local releaseOk, result
-  if access.kind == 'public' then
+  if access.kind == 'public' or access.kind == 'house' then
     releaseOk, result = MZGaragemOwned.releaseImpound(source, access, plate)
   elseif access.kind == 'org' then
     releaseOk, result = MZGaragemOrg.releaseImpound(source, access, plate)
@@ -316,8 +326,8 @@ lib.callback.register('mz_garagem:server:releaseImpound', function(source, garag
   return { ok = true }
 end)
 
-lib.callback.register('mz_garagem:server:storeVehicle', function(source, garageId, payload)
-  local ok, access = MZGaragemAccess.resolve(source, garageId)
+lib.callback.register('mz_garagem:server:storeVehicle', function(source, garageId, payload, context)
+  local ok, access = MZGaragemAccess.resolve(source, garageId, context)
   if not ok then
     return errorResponse('server_access', access, { garage_id = tostring(garageId or '') })
   end
@@ -331,7 +341,7 @@ lib.callback.register('mz_garagem:server:storeVehicle', function(source, garageI
   end
 
   local storeOk, result
-  if access.kind == 'public' then
+  if access.kind == 'public' or access.kind == 'house' then
     storeOk, result = MZGaragemOwned.store(source, access, payload or {})
   elseif access.kind == 'org' then
     storeOk, result = MZGaragemOrg.store(source, access, payload or {})
@@ -355,15 +365,15 @@ lib.callback.register('mz_garagem:server:storeVehicle', function(source, garageI
   return { ok = true }
 end)
 
-lib.callback.register('mz_garagem:server:rollbackWithdraw', function(source, garageId, plate)
-  local ok, access = MZGaragemAccess.resolve(source, garageId)
+lib.callback.register('mz_garagem:server:rollbackWithdraw', function(source, garageId, plate, context)
+  local ok, access = MZGaragemAccess.resolve(source, garageId, context)
   if not ok then
     logGarageFlow('rollback', source, access, garageId)
     return errorResponse('rollback', access, { garage_id = tostring(garageId or '') })
   end
 
   local rollbackOk, result
-  if access.kind == 'public' then
+  if access.kind == 'public' or access.kind == 'house' then
     rollbackOk, result = MZGaragemOwned.rollbackWithdraw(access, plate)
   elseif access.kind == 'org' then
     rollbackOk, result = MZGaragemOrg.rollbackWithdraw(access, plate)

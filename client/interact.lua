@@ -65,7 +65,7 @@ local function cloneTable(source)
 end
 
 local function fallbackIcon()
-  return 'mod_icon', 'arsenal_icon'
+  return 'mod_icon', 'garage'
 end
 
 local function iconFromConfig(icon)

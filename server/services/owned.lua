@@ -1,5 +1,9 @@
 MZGaragemOwned = MZGaragemOwned or {}
 
+local function isGarageDebug()
+  return MZGaragemConfig and MZGaragemConfig.debug == true
+end
+
 local function resolveVehicleCategory(vehicle)
   vehicle = type(vehicle) == 'table' and vehicle or {}
 
@@ -72,6 +76,39 @@ local function validateGaragePolicy(access, vehicle, action)
   return true
 end
 
+local function isPrivateHouseGarage(access)
+  local garage = type(access) == 'table' and type(access.garage) == 'table' and access.garage or {}
+  local house = type(garage.house) == 'table' and garage.house or {}
+
+  return garage.kind == 'house'
+    and (tostring(house.mode or '') == 'private' or (garage.rules and garage.rules.strict_garage == true))
+end
+
+local function countStoredVehiclesInGarage(source, garageId, exceptPlate)
+  garageId = tostring(garageId or '')
+  exceptPlate = tostring(exceptPlate or ''):upper():gsub('^%s+', ''):gsub('%s+$', '')
+
+  if garageId == '' then
+    return 0
+  end
+
+  local ok, vehicles = exports['mz_core']:GetPlayerVehicles(source)
+  if not ok then
+    return 0
+  end
+
+  local count = 0
+  for _, vehicle in ipairs(vehicles or {}) do
+    local plate = tostring(vehicle.plate or ''):upper():gsub('^%s+', ''):gsub('%s+$', '')
+    local state = tostring(vehicle.state or 'stored')
+    if tostring(vehicle.garage or '') == garageId and state == 'stored' and plate ~= exceptPlate then
+      count = count + 1
+    end
+  end
+
+  return count
+end
+
 local function buildConditionPayload(vehicle)
   vehicle = type(vehicle) == 'table' and vehicle or {}
   local metadata = type(vehicle.metadata_json) == 'table' and vehicle.metadata_json or {}
@@ -109,6 +146,7 @@ function MZGaragemOwned.list(source, access)
     local vehicleGarage = tostring(vehicle.garage or '')
     local garageId = tostring(access.garage.id or '')
     local strictGarage = access.garage.rules.strict_garage == true
+    local privateHouseGarage = isPrivateHouseGarage(access)
     local skipReason = nil
 
     if blocked then
@@ -117,35 +155,41 @@ function MZGaragemOwned.list(source, access)
       skipReason = 'category_not_allowed'
     elseif state == 'impounded' and access.garage.rules.allow_impounded ~= true then
       skipReason = 'impounded_not_allowed'
+    elseif privateHouseGarage and state ~= 'stored' then
+      skipReason = 'house_garage_not_stored'
     elseif strictGarage and vehicleGarage ~= garageId then
       skipReason = 'wrong_garage'
     end
 
     if skipReason then
-      print(('[mz_garagem][owned_list_skip] source=%s | citizenid=%s | garage=%s | plate=%s | model=%s | category=%s | db_category=%s | vehicle_garage=%s | state=%s | reason=%s'):format(
-        tostring(source),
-        tostring(access.citizenid or ''),
-        garageId,
-        tostring(vehicle.plate or ''),
-        tostring(vehicle.model or ''),
-        resolveVehicleCategory(vehicle),
-        tostring(vehicle.category or ''),
-        vehicleGarage,
-        state,
-        skipReason
-      ))
+      if isGarageDebug() then
+        print(('[mz_garagem][owned_list_skip] source=%s | citizenid=%s | garage=%s | plate=%s | model=%s | category=%s | db_category=%s | vehicle_garage=%s | state=%s | reason=%s'):format(
+          tostring(source),
+          tostring(access.citizenid or ''),
+          garageId,
+          tostring(vehicle.plate or ''),
+          tostring(vehicle.model or ''),
+          resolveVehicleCategory(vehicle),
+          tostring(vehicle.category or ''),
+          vehicleGarage,
+          state,
+          skipReason
+        ))
+      end
     else
       rows[#rows + 1] = MZGaragemDTO.buildOwnedEntry(access.garage, vehicle)
     end
   end
 
-  print(('[mz_garagem][owned_list] source=%s | citizenid=%s | garage=%s | vehicles_total=%s | entries_count=%s'):format(
-    tostring(source),
-    tostring(access.citizenid or ''),
-    tostring(access.garage.id or ''),
-    tostring(vehiclesTotal),
-    tostring(#rows)
-  ))
+  if isGarageDebug() then
+    print(('[mz_garagem][owned_list] source=%s | citizenid=%s | garage=%s | vehicles_total=%s | entries_count=%s'):format(
+      tostring(source),
+      tostring(access.citizenid or ''),
+      tostring(access.garage.id or ''),
+      tostring(vehiclesTotal),
+      tostring(#rows)
+    ))
+  end
 
   return true, MZGaragemDTO.sort(rows)
 end
@@ -230,6 +274,30 @@ function MZGaragemOwned.store(source, access, payload)
   local policyOk, policyErr = validateGaragePolicy(access, vehicle, 'store')
   if not policyOk then
     return false, policyErr
+  end
+
+  if isPrivateHouseGarage(access) then
+    local garageId = tostring(access.garage.id or '')
+    local slots = math.floor(tonumber(access.garage.house and access.garage.house.slots) or 2)
+    if slots < 1 then slots = 1 end
+
+    local vehicleGarage = tostring(vehicle.garage or '')
+    if vehicleGarage ~= garageId then
+      local currentCount = countStoredVehiclesInGarage(source, garageId, payload.plate)
+      if currentCount >= slots then
+        if isGarageDebug() then
+          print(('[mz_garagem][house_garage_full] source=%s | citizenid=%s | garage=%s | slots=%s | current=%s | plate=%s'):format(
+            tostring(source),
+            tostring(access.citizenid or ''),
+            garageId,
+            tostring(slots),
+            tostring(currentCount),
+            tostring(payload.plate or '')
+          ))
+        end
+        return false, 'house_garage_full'
+      end
+    end
   end
 
   local storedOk, storedVehicle = exports['mz_core']:StoreVehicle(

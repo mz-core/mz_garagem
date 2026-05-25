@@ -3,7 +3,8 @@ MZGaragemAccess = MZGaragemAccess or {}
 local VALID_KINDS = {
   public = true,
   org = true,
-  service = true
+  service = true,
+  house = true
 }
 
 local function cloneTable(value)
@@ -29,7 +30,8 @@ end
 
 local function shouldLogGarageOpenDebug(garage)
   local garageId = tostring(type(garage) == 'table' and garage.id or garage or '')
-  return garageId == 'police_org' or garageId == 'police_service'
+  return MZGaragemConfig and MZGaragemConfig.debug == true
+    and (garageId == 'police_org' or garageId == 'police_service')
 end
 
 local function logAccessOpenDebug(stage, source, garage, org, err)
@@ -154,7 +156,17 @@ function MZGaragemAccess.resolveOrgMembership(source, orgCode)
   return nil
 end
 
-function MZGaragemAccess.resolve(source, garageId)
+local function normalizeHouseContext(context)
+  context = type(context) == 'table' and context or {}
+
+  return {
+    garageType = tostring(context.garageType or context.type or ''),
+    token = tostring(context.token or ''),
+    houseCode = tostring(context.houseCode or context.house_code or '')
+  }
+end
+
+function MZGaragemAccess.resolve(source, garageId, requestContext)
   local player = getPlayer(source)
   if not player then
     return false, 'player_not_loaded'
@@ -177,6 +189,45 @@ function MZGaragemAccess.resolve(source, garageId)
   }
 
   if garage.kind == 'public' then
+    return true, context
+  end
+
+  if garage.kind == 'house' then
+    local houseContext = normalizeHouseContext(requestContext)
+    local house = type(garage.house) == 'table' and garage.house or {}
+    local sessions = type(house.sessions) == 'table' and house.sessions or {}
+    local session = sessions[tonumber(source) or 0]
+    local expiresAt = type(session) == 'table' and tonumber(session.expires_at) or 0
+    local sessionToken = type(session) == 'table' and tostring(session.token or '') or ''
+
+    if not session or expiresAt <= os.time() then
+      sessions[tonumber(source) or 0] = nil
+      if MZGaragemHouseSessions then
+        MZGaragemHouseSessions[tonumber(source) or 0] = nil
+      end
+      return false, 'house_garage_expired'
+    end
+
+    if houseContext.garageType ~= 'house' then
+      return false, 'house_garage_session_invalid'
+    end
+
+    if houseContext.token == '' or sessionToken == '' or houseContext.token ~= sessionToken then
+      return false, 'house_garage_token_invalid'
+    end
+
+    if houseContext.houseCode ~= '' and tostring(house.code or '') ~= houseContext.houseCode then
+      return false, 'house_garage_access_denied'
+    end
+
+    -- Renovar a sessao enquanto a UI/callbacks da garagem ainda estao em uso.
+    session.expires_at = os.time() + (tonumber(house.session_seconds) or 300)
+    if MZGaragemHouseSessions and MZGaragemHouseSessions[tonumber(source) or 0] then
+      MZGaragemHouseSessions[tonumber(source) or 0].expires_at = session.expires_at
+    end
+
+    context.house = house
+    context.houseSession = session
     return true, context
   end
 

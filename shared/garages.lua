@@ -21,7 +21,7 @@ MZGaragemGarages = {
     interact = {
       icon = {
         textureDict = 'mod_icon',
-        textureName = 'car_service_icon'
+        textureName = 'garage'
       }
     },
     store = {
@@ -86,7 +86,7 @@ MZGaragemGarages = {
     interact = {
       icon = {
         textureDict = 'mod_icon',
-        textureName = 'car_service_icon'
+        textureName = 'garage'
       }
     },
     store = {

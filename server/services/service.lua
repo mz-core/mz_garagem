@@ -9,7 +9,7 @@ local runtimeState = {
 local function shouldLogServiceOpen(access)
   local garage = type(access) == 'table' and access.garage or access
   local garageId = tostring(type(garage) == 'table' and garage.id or '')
-  return garageId == 'police_service'
+  return MZGaragemConfig and MZGaragemConfig.debug == true and garageId == 'police_service'
 end
 
 local function logServiceOpen(stage, source, access, detail)

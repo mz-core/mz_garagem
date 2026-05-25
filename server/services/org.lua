@@ -3,7 +3,7 @@ MZGaragemOrg = MZGaragemOrg or {}
 local function shouldLogOrgOpen(access)
   local garage = type(access) == 'table' and access.garage or access
   local garageId = tostring(type(garage) == 'table' and garage.id or '')
-  return garageId == 'police_org'
+  return MZGaragemConfig and MZGaragemConfig.debug == true and garageId == 'police_org'
 end
 
 local function logOrgOpen(stage, source, access, detail)

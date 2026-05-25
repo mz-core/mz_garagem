@@ -1,3 +1,79 @@
+local function asVector3(value)
+  if type(value) == 'vector3' then
+    return value
+  end
+
+  if type(value) == 'vector4' then
+    return vector3(value.x, value.y, value.z)
+  end
+
+  if type(value) == 'table' then
+    local x = tonumber(value.x or value[1])
+    local y = tonumber(value.y or value[2])
+    local z = tonumber(value.z or value[3])
+    if x and y and z then
+      return vector3(x, y, z)
+    end
+  end
+
+  return nil
+end
+
+local function asVector4(value)
+  if type(value) == 'vector4' then
+    return value
+  end
+
+  if type(value) == 'vector3' then
+    return vector4(value.x, value.y, value.z, 0.0)
+  end
+
+  if type(value) == 'table' then
+    local x = tonumber(value.x or value[1])
+    local y = tonumber(value.y or value[2])
+    local z = tonumber(value.z or value[3])
+    local w = tonumber(value.w or value.h or value.heading or value[4]) or 0.0
+    if x and y and z then
+      return vector4(x, y, z, w)
+    end
+  end
+
+  return nil
+end
+
+local function isGarageDebug()
+  return MZGaragemConfig and MZGaragemConfig.debug == true
+end
+
+local function normalizeGarageRuntimeVectors(garage)
+  if type(garage) ~= 'table' then
+    return garage
+  end
+
+  if type(garage.zone) == 'table' and garage.zone.coords then
+    garage.zone.coords = asVector3(garage.zone.coords) or garage.zone.coords
+  end
+
+  if type(garage.store) == 'table' and garage.store.coords then
+    garage.store.coords = asVector3(garage.store.coords) or garage.store.coords
+  end
+
+  if type(garage.store) == 'table' and type(garage.store.interact) == 'table' then
+    local marker = type(garage.store.interact.marker) == 'table' and garage.store.interact.marker or nil
+    if marker and marker.size then
+      marker.size = asVector3(marker.size) or marker.size
+    end
+  end
+
+  if type(garage.spawn_points) == 'table' then
+    for index, point in ipairs(garage.spawn_points) do
+      garage.spawn_points[index] = asVector4(point) or point
+    end
+  end
+
+  return garage
+end
+
 local function getGarageCoords(garage)
   if type(garage) ~= 'table' then
     return nil
@@ -18,6 +94,31 @@ local PersistentRespawnState = {
   lastVehicle = 0,
   lastSnapshotAt = 0
 }
+
+function MZGaragemClient.getGarageContext(garage)
+  garage = type(garage) == 'table' and garage or {}
+  local context = type(garage.context) == 'table' and garage.context or {}
+  local house = type(garage.house) == 'table' and garage.house or {}
+  local token = tostring(context.token or house.token or '')
+  local houseCode = tostring(context.houseCode or context.house_code or house.code or '')
+
+  if tostring(context.type or context.garageType or garage.kind or '') ~= 'house' and token == '' then
+    return nil
+  end
+
+  if token == '' then
+    return nil
+  end
+
+  return {
+    garageType = 'house',
+    type = 'house',
+    token = token,
+    houseCode = houseCode,
+    garageMode = context.garageMode or house.mode,
+    slots = context.slots or house.slots
+  }
+end
 
 local function getStoreConfig(garage)
   if type(garage) ~= 'table' or type(garage.store) ~= 'table' or garage.store.enabled ~= true then
@@ -212,6 +313,10 @@ local function refreshLegacyBlips()
 end
 
 local function logOpenGarageClient(stage, garage, detail)
+  if not isGarageDebug() then
+    return
+  end
+
   garage = type(garage) == 'table' and garage or {}
   detail = type(detail) == 'table' and detail or {}
 
@@ -231,13 +336,14 @@ local function logOpenGarageClient(stage, garage, detail)
   ))
 end
 
-local function openGarage(garageId)
+local function openGarage(garageId, context)
   local garage = MZGaragemGarages and MZGaragemGarages[garageId] or {}
   garage.id = garage.id or garageId
+  context = context or MZGaragemClient.getGarageContext(garage)
 
   logOpenGarageClient('request', garage)
 
-  local response = lib.callback.await('mz_garagem:server:openGarage', false, garageId)
+  local response = lib.callback.await('mz_garagem:server:openGarage', false, garageId, context)
   if not response or response.ok ~= true then
     logOpenGarageClient('response_error', garage, {
       response_stage = response and response.stage or 'client_nil_response',
@@ -254,8 +360,8 @@ local function openGarage(garageId)
   MZGaragemNUI.open(response)
 end
 
-function MZGaragemClient.openGarage(garageId)
-  return openGarage(garageId)
+function MZGaragemClient.openGarage(garageId, context)
+  return openGarage(garageId, context)
 end
 
 local function clearServiceTracking(plate)
@@ -263,6 +369,10 @@ local function clearServiceTracking(plate)
 end
 
 local function logStoreCleanup(stage, detail)
+  if not isGarageDebug() then
+    return
+  end
+
   detail = type(detail) == 'table' and detail or {}
 
   print(('[mz_garagem][store_cleanup][%s] entity=%s | net_id=%s | plate=%s | exists_before=%s | exists_after=%s | delete_result=%s'):format(
@@ -283,6 +393,8 @@ local STORE_ERROR_MESSAGES = {
   vehicle_access_denied = 'Voce nao tem acesso a este veiculo.',
   vehicle_not_found = 'Este veiculo nao esta registrado.',
   garage_kind_mismatch = 'Este veiculo nao pertence ao tipo desta garagem.',
+  house_garage_full = 'Garagem da casa esta cheia.',
+  house_garage_vehicle_not_here = 'Este veiculo nao esta guardado nesta garagem.',
   invalid_plate = 'A placa do veiculo e invalida.',
   invalid_garage = 'A garagem e invalida.',
   vehicle_impounded = 'Este veiculo esta apreendido.',
@@ -296,12 +408,14 @@ local function notifyStoreError(response)
   local err = tostring(response.error or 'unknown_error')
   local message = STORE_ERROR_MESSAGES[err] or 'Nao foi possivel guardar o veiculo.'
 
-  print(('[mz_garagem][store_client_error] stage=%s | error=%s | garage_id=%s | kind=%s'):format(
-    stage,
-    err,
-    tostring(response.garage_id or ''),
-    tostring(response.kind or '')
-  ))
+  if isGarageDebug() then
+    print(('[mz_garagem][store_client_error] stage=%s | error=%s | garage_id=%s | kind=%s'):format(
+      stage,
+      err,
+      tostring(response.garage_id or ''),
+      tostring(response.kind or '')
+    ))
+  end
 
   MZGaragemClientHelpers.notify(('%s [%s]'):format(message, err), 'error')
 end
@@ -326,7 +440,7 @@ local function storeVehicleEntity(garage, vehicle)
 
   local payload = MZGaragemSpawn.captureStorePayload(vehicle, serviceInfo and serviceInfo.runtime_id or nil)
   payload.plate = plate
-  local response = lib.callback.await('mz_garagem:server:storeVehicle', false, garage.id, payload)
+  local response = lib.callback.await('mz_garagem:server:storeVehicle', false, garage.id, payload, MZGaragemClient.getGarageContext(garage))
   if not response or response.ok ~= true then
     notifyStoreError(response)
     return false
@@ -397,9 +511,30 @@ function MZGaragemClient.handleGarageInteraction(garageId)
 
   garage.id = garage.id or garageId
 
-  openGarage(garage.id)
+  openGarage(garage.id, MZGaragemClient.getGarageContext(garage))
   return true
 end
+
+RegisterNetEvent('mz_garagem:client:openHouseGarage', function(garage, action)
+  if type(garage) ~= 'table' or not garage.id then
+    MZGaragemClientHelpers.notify('Garagem da casa invalida.', 'error')
+    return
+  end
+
+  garage = normalizeGarageRuntimeVectors(garage)
+
+  MZGaragemGarages = MZGaragemGarages or {}
+  MZGaragemGarages[garage.id] = garage
+
+  local context = MZGaragemClient.getGarageContext(garage)
+  action = tostring(action or 'open')
+  if action == 'store' then
+    MZGaragemClient.storeCurrentVehicle(garage.id)
+    return
+  end
+
+  MZGaragemClient.openGarage(garage.id, context)
+end)
 
 function MZGaragemClient.storeNearbyVehicle(garageId)
   local garage = MZGaragemGarages and MZGaragemGarages[garageId] or nil

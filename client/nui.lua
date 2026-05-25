@@ -6,6 +6,10 @@ MZGaragemNUI = MZGaragemNUI or {
   currentEntriesById = {}
 }
 
+local function isGarageDebug()
+  return MZGaragemConfig and MZGaragemConfig.debug == true
+end
+
 local WITHDRAW_ERROR_MESSAGES = {
   prepare = {
     garage_not_found = 'Garagem nao encontrada para spawn.',
@@ -37,6 +41,7 @@ local WITHDRAW_ERROR_MESSAGES = {
     vehicle_already_out = 'Este veiculo ja esta fora da garagem.',
     vehicle_missing_outside = 'Este veiculo esta marcado como fora, mas nao foi localizado. Use recuperacao/depot ou procure o suporte.',
     vehicle_spawn_blocked = 'Este veiculo ja possui uma entidade fora da garagem.',
+    house_garage_vehicle_not_here = 'Este veiculo nao esta guardado nesta garagem.',
     restore_disabled = 'A restauracao automatica deste veiculo esta desativada.',
     vehicle_impounded = 'Este veiculo esta no impound.',
     vehicle_wrong_garage = 'Este veiculo pertence a outra garagem.',
@@ -71,6 +76,10 @@ local function getEntry(entryId)
 end
 
 local function logWithdraw(stage, code, extra)
+  if not isGarageDebug() then
+    return
+  end
+
   print(('[mz_garagem][withdraw][%s] %s%s'):format(
     tostring(stage or 'unknown'),
     tostring(code or 'unknown_error'),
@@ -109,6 +118,11 @@ function MZGaragemNUI.open(payload)
 end
 
 function MZGaragemNUI.close()
+  local context = MZGaragemClient.getGarageContext and MZGaragemClient.getGarageContext(MZGaragemNUI.currentGarage) or nil
+  if context and context.garageType == 'house' then
+    TriggerServerEvent('mz_garagem:server:closeHouseGarage', context)
+  end
+
   MZGaragemNUI.isOpen = false
   MZGaragemNUI.busy = false
   SetNuiFocus(false, false)
@@ -120,7 +134,8 @@ function MZGaragemNUI.refresh()
     return
   end
 
-  local response = lib.callback.await('mz_garagem:server:openGarage', false, MZGaragemNUI.currentGarage.id)
+  local context = MZGaragemClient.getGarageContext and MZGaragemClient.getGarageContext(MZGaragemNUI.currentGarage) or nil
+  local response = lib.callback.await('mz_garagem:server:openGarage', false, MZGaragemNUI.currentGarage.id, context)
   if not response or response.ok ~= true then
     MZGaragemClientHelpers.notify('Nao foi possivel atualizar a garagem.', 'error')
     return
@@ -134,7 +149,8 @@ local function rollbackPersistentSpawn(garageId, spawnPayload)
     return { ok = false, stage = 'rollback', error = 'vehicle_not_found' }
   end
 
-  local response = lib.callback.await('mz_garagem:server:rollbackWithdraw', false, garageId, spawnPayload.plate)
+  local context = MZGaragemClient.getGarageContext and MZGaragemClient.getGarageContext(MZGaragemNUI.currentGarage) or nil
+  local response = lib.callback.await('mz_garagem:server:rollbackWithdraw', false, garageId, spawnPayload.plate, context)
   if response and response.ok == true then
     return response
   end
@@ -163,7 +179,8 @@ local function handleWithdraw(entryId)
 
   MZGaragemNUI.busy = true
 
-  local response = lib.callback.await('mz_garagem:server:withdraw', false, MZGaragemNUI.currentGarage.id, entry.entry_id)
+  local context = MZGaragemClient.getGarageContext and MZGaragemClient.getGarageContext(MZGaragemNUI.currentGarage) or nil
+  local response = lib.callback.await('mz_garagem:server:withdraw', false, MZGaragemNUI.currentGarage.id, entry.entry_id, context)
   if not response or response.ok ~= true then
     SetModelAsNoLongerNeeded(prepared.model_hash)
     MZGaragemNUI.busy = false
@@ -234,7 +251,8 @@ local function handleReleaseImpound(entryId)
   end
 
   MZGaragemNUI.busy = true
-  local response = lib.callback.await('mz_garagem:server:releaseImpound', false, MZGaragemNUI.currentGarage.id, entry.plate)
+  local context = MZGaragemClient.getGarageContext and MZGaragemClient.getGarageContext(MZGaragemNUI.currentGarage) or nil
+  local response = lib.callback.await('mz_garagem:server:releaseImpound', false, MZGaragemNUI.currentGarage.id, entry.plate, context)
   MZGaragemNUI.busy = false
 
   if not response or response.ok ~= true then

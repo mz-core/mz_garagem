@@ -10,11 +10,11 @@ MZGaragemConfig = {
   maxGarageDistance = 12.0,
   DefaultInteractIcon = {
     textureDict = 'mod_icon',
-    textureName = 'arsenal_icon'
+    textureName = 'garage'
   },
   DefaultStoreIcon = {
     textureDict = 'mod_icon',
-    textureName = 'arsenal_icon'
+    textureName = 'garage'
   },
   marker = {
     type = 36,
