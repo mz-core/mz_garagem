@@ -568,6 +568,10 @@ CreateThread(function()
     print('[mz_garagem] house garage export debug loaded')
   end
 
+  if MZGaragemManaged and type(MZGaragemManaged.Initialize) == 'function' then
+    MZGaragemManaged.Initialize()
+  end
+
   bootstrap()
 end)
 

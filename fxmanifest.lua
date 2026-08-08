@@ -15,8 +15,12 @@ shared_scripts {
 }
 
 server_scripts {
+  '@oxmysql/lib/MySQL.lua',
   'server/services/vehicle_domain.lua',
   'server/services/access.lua',
+  'server/managed/prepare.lua',
+  'server/managed/repository.lua',
+  'server/managed/service.lua',
   'server/services/dto.lua',
   'server/services/owned.lua',
   'server/services/org.lua',
@@ -27,6 +31,7 @@ server_scripts {
 
 client_scripts {
   'client/helpers.lua',
+  'client/managed.lua',
   'client/spawn.lua',
   'client/nui.lua',
   'client/main.lua',
@@ -44,6 +49,7 @@ files {
 
 dependencies {
   'ox_lib',
+  'oxmysql',
   'mz_core',
   'mz_vehicles',
   'mz_fuel'

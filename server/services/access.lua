@@ -21,7 +21,7 @@ local function cloneTable(value)
 end
 
 local function getPlayer(source)
-  return exports['mz_core']:GetPlayer(source)
+  return exports['mz_core']:GetPlayerSnapshot(source)
 end
 
 local function getPlayerOrgs(source)

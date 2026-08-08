@@ -39,7 +39,8 @@ local function callVehiclesExport(exportName, ...)
   end
 
   local ok, a, b = pcall(function(...)
-    return exports['mz_vehicles'][exportName](...)
+    local vehicleExports = exports['mz_vehicles']
+    return vehicleExports[exportName](vehicleExports, ...)
   end, ...)
 
   if not ok then

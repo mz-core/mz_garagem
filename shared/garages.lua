@@ -60,7 +60,7 @@ MZGaragemGarages = {
       allow_impounded = true
     }
   },
-  
+
   pillbox_public = {
     id = 'pillbox_public',
     label = 'Pillbox Garage',

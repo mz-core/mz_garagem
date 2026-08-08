@@ -360,6 +360,10 @@ local function registerGaragePoints()
   end
 end
 
+AddEventHandler('mz_garagem:client:definitionsRefreshed', function()
+  registerGaragePoints()
+end)
+
 CreateThread(function()
   Wait(1000)
   registerGaragePoints()

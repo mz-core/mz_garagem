@@ -14,6 +14,11 @@ local function openGarageList(source, access)
   return false, 'invalid_kind'
 end
 
+local function garageActionAllowed(source)
+  local ok, allowed, result = pcall(function() return exports['mz_core']:CanPlayerPerformAction(source, 'garage.use') end)
+  return ok and allowed == true and type(result) == 'table' and result.allowed == true
+end
+
 local function isGarageDebug()
   return MZGaragemConfig and MZGaragemConfig.debug == true
 end
@@ -156,20 +161,36 @@ local function validateStorePosition(source, access, payload)
   local maxGarageDistance = tonumber(MZGaragemConfig.maxGarageDistance or 12.0) or 12.0
   local validationPoints = {}
 
+  local function asVector3(value)
+    if type(value) == 'vector3' then return value end
+    if type(value) == 'vector4' then return vector3(value.x, value.y, value.z) end
+    if type(value) ~= 'table' then return nil end
+    local x = tonumber(value.x or value[1])
+    local y = tonumber(value.y or value[2])
+    local z = tonumber(value.z or value[3])
+    return x and y and z and vector3(x, y, z) or nil
+  end
+
   if garage.zone and garage.zone.coords then
-    validationPoints[#validationPoints + 1] = {
-      coords = garage.zone.coords,
-      distance = maxGarageDistance
-    }
+    local zoneCoords = asVector3(garage.zone.coords)
+    if zoneCoords then
+      validationPoints[#validationPoints + 1] = {
+        coords = zoneCoords,
+        distance = maxGarageDistance
+      }
+    end
   end
 
   if type(garage.store) == 'table' and garage.store.enabled == true and garage.store.coords then
     local storeInteract = type(garage.store.interact) == 'table' and garage.store.interact or {}
     local storeDistance = tonumber(storeInteract.interactDistance or garage.store.radius or maxGarageDistance) or maxGarageDistance
-    validationPoints[#validationPoints + 1] = {
-      coords = garage.store.coords,
-      distance = math.max(maxGarageDistance, storeDistance)
-    }
+    local storeCoords = asVector3(garage.store.coords)
+    if storeCoords then
+      validationPoints[#validationPoints + 1] = {
+        coords = storeCoords,
+        distance = math.max(maxGarageDistance, storeDistance)
+      }
+    end
   end
 
   if #validationPoints == 0 then
@@ -222,6 +243,7 @@ local function validateStorePosition(source, access, payload)
 end
 
 lib.callback.register('mz_garagem:server:openGarage', function(source, garageId, context)
+  if not garageActionAllowed(source) then return errorResponse('player_state', 'player_state_blocked') end
   local requestedGarage = MZGaragemAccess.getGarage(garageId)
   logOpenGarageCallback('request', source, requestedGarage, {
     garage_id = tostring(garageId or '')
@@ -271,6 +293,7 @@ lib.callback.register('mz_garagem:server:openGarage', function(source, garageId,
 end)
 
 lib.callback.register('mz_garagem:server:withdraw', function(source, garageId, entryId, context)
+  if not garageActionAllowed(source) then return errorResponse('player_state', 'player_state_blocked') end
   local ok, access = MZGaragemAccess.resolve(source, garageId, context)
   if not ok then
     logGarageFlow('withdraw', source, access, garageId)
@@ -305,6 +328,7 @@ lib.callback.register('mz_garagem:server:withdraw', function(source, garageId, e
 end)
 
 lib.callback.register('mz_garagem:server:releaseImpound', function(source, garageId, plate, context)
+  if not garageActionAllowed(source) then return { ok = false, error = 'player_state_blocked' } end
   local ok, access = MZGaragemAccess.resolve(source, garageId, context)
   if not ok then
     return { ok = false, error = access }
@@ -327,6 +351,7 @@ lib.callback.register('mz_garagem:server:releaseImpound', function(source, garag
 end)
 
 lib.callback.register('mz_garagem:server:storeVehicle', function(source, garageId, payload, context)
+  if not garageActionAllowed(source) then return errorResponse('player_state', 'player_state_blocked') end
   local ok, access = MZGaragemAccess.resolve(source, garageId, context)
   if not ok then
     return errorResponse('server_access', access, { garage_id = tostring(garageId or '') })
@@ -398,6 +423,7 @@ lib.callback.register('mz_garagem:server:rollbackWithdraw', function(source, gar
 end)
 
 lib.callback.register('mz_garagem:server:getOutVehiclesForRespawn', function(source)
+  if not garageActionAllowed(source) then return { ok = false, error = 'player_state_blocked' } end
   local ok, vehicles = exports['mz_core']:GetOutVehiclesForRespawn(source)
   if not ok then
     return {
@@ -418,6 +444,7 @@ end)
 
 RegisterNetEvent('mz_garagem:server:persistentVehicleSpawned', function(plate, netId, snapshot)
   local src = source
+  if not garageActionAllowed(src) then return end
   snapshot = type(snapshot) == 'table' and snapshot or {}
   snapshot.net_id = tonumber(netId or snapshot.net_id or snapshot.netId) or 0
   exports['mz_core']:RegisterOutVehicleEntity(src, plate, snapshot.net_id, snapshot)
@@ -425,6 +452,7 @@ end)
 
 RegisterNetEvent('mz_garagem:server:persistentVehicleSnapshot', function(plate, snapshot)
   local src = source
+  if not garageActionAllowed(src) then return end
   snapshot = type(snapshot) == 'table' and snapshot or {}
   if snapshot.destroyed == true then
     exports['mz_core']:MarkOutVehicleDestroyed(src, plate, snapshot)
@@ -435,6 +463,7 @@ RegisterNetEvent('mz_garagem:server:persistentVehicleSnapshot', function(plate, 
 end)
 
 RegisterNetEvent('mz_garagem:server:serviceConfirmSpawn', function(runtimeId, netId)
+  if not garageActionAllowed(source) then return end
   MZGaragemService.confirmSpawn(source, runtimeId, netId)
 end)
 

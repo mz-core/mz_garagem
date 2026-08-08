@@ -306,11 +306,23 @@ local function refreshLegacyBlips()
     return
   end
 
+  for garageId, blip in pairs(legacyBlips) do
+    if not MZGaragemGarages or not MZGaragemGarages[garageId] then
+      if blip and DoesBlipExist(blip) then RemoveBlip(blip) end
+      legacyBlips[garageId] = nil
+    end
+  end
+
   for garageId, garage in pairs(MZGaragemGarages or {}) do
     garage.id = garage.id or garageId
     createLegacyBlip(garageId, garage)
   end
 end
+
+AddEventHandler('mz_garagem:client:definitionsRefreshed', function()
+  removeLegacyBlips()
+  refreshLegacyBlips()
+end)
 
 local function logOpenGarageClient(stage, garage, detail)
   if not isGarageDebug() then
