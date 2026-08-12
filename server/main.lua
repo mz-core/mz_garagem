@@ -568,11 +568,23 @@ CreateThread(function()
     print('[mz_garagem] house garage export debug loaded')
   end
 
-  if MZGaragemManaged and type(MZGaragemManaged.Initialize) == 'function' then
-    MZGaragemManaged.Initialize()
+  local ready, readinessResult = MZGaragemBootstrapReadiness.runWhenReady(function()
+    if MZGaragemManaged and type(MZGaragemManaged.Initialize) == 'function' then
+      MZGaragemManaged.Initialize()
+    end
+
+    bootstrap()
+  end)
+
+  if not ready then
+    logWarn(('bootstrap blocked while organization owner is not ready: %s'):format(tostring(readinessResult)))
+    return
   end
 
-  bootstrap()
+  logInfo(('organization readiness confirmed after %d probe(s) in %dms'):format(
+    tonumber(readinessResult.attempts) or 0,
+    tonumber(readinessResult.elapsedMs) or 0
+  ))
 end)
 
 AddEventHandler('playerDropped', function()

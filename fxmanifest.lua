@@ -26,6 +26,7 @@ server_scripts {
   'server/services/org.lua',
   'server/services/service.lua',
   'server/callbacks.lua',
+  'server/bootstrap_readiness.lua',
   'server/main.lua'
 }
 
