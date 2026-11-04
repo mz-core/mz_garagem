@@ -21,7 +21,9 @@ local VALID_CATEGORY_MODES = {
   bike = { 'bike' },
   car_bike = { 'car', 'bike' },
   boat = { 'boat' },
-  plane = { 'plane' }
+  plane = { 'plane' },
+  helicopter = { 'helicopter' },
+  emergency = { 'emergency' }
 }
 
 local function trim(value)
@@ -185,7 +187,7 @@ local function normalizePersisted(row)
 
   if definition.kind == 'org' then
     local ok, org = pcall(function()
-      return exports['mz_core']:GetOrgByCode(definition.org_code)
+      return exports['mz_org']:GetOrgByCode(definition.org_code)
     end)
     if not ok or type(org) ~= 'table' then return nil, 'invalid_org' end
     if org.active ~= true then return nil, 'org_archived' end
@@ -225,7 +227,7 @@ local function normalizePayload(payload)
   if kind == 'org' then
     orgCode = trim(payload.orgCode):lower()
     if orgCode == '' or #orgCode > 64 then return nil, 'invalid_org' end
-    local ok, org = pcall(function() return exports['mz_core']:GetOrgByCode(orgCode) end)
+    local ok, org = pcall(function() return exports['mz_org']:GetOrgByCode(orgCode) end)
     if not ok or type(org) ~= 'table' then return nil, 'invalid_org' end
     if org.active ~= true then return nil, 'org_archived' end
     organization = org

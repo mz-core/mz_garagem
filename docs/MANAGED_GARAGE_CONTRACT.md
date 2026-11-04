@@ -7,7 +7,7 @@
 Esta primeira entrega permite somente criar:
 
 - garagem `public`;
-- garagem `org`, vinculada a uma organizacao ativa do `mz_core`.
+- garagem `org`, vinculada a uma organizacao ativa do `mz_org`.
 
 O mesmo contrato permite listar, editar, reposicionar, arquivar e reativar essas definicoes. Exclusao, multiplos spawns, frotas de servico e garagens residenciais administradas nao fazem parte deste lote.
 
@@ -77,7 +77,7 @@ A criacao e recusada quando:
 - spawn ou armazenamento ficam a mais de 250 metros da entrada.
 - uma edicao tenta trocar codigo, tipo ou organizacao.
 
-Tipos aceitos em `categoryMode`: `car`, `bike`, `car_bike`, `boat` e `plane`.
+Tipos aceitos em `categoryMode`: `car`, `bike`, `car_bike`, `boat`, `plane`, `helicopter` e `emergency`.
 
 ## Regras geradas
 

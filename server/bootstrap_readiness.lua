@@ -4,7 +4,7 @@ local DEFAULT_TIMEOUT_MS = 120000
 local DEFAULT_POLL_INTERVAL_MS = 50
 
 local function defaultProbe()
-  local resourceState = GetResourceState('mz_core')
+  local resourceState = GetResourceState('mz_org')
   if resourceState == 'missing' or resourceState == 'stopped' or resourceState == 'stopping' then
     return {
       ready = false,
@@ -22,7 +22,7 @@ local function defaultProbe()
   end
 
   local ok, result = pcall(function()
-    return exports['mz_core']:GetOrganizationReadiness()
+    return exports['mz_org']:GetOrganizationReadiness()
   end)
   if not ok or type(result) ~= 'table' then
     return {

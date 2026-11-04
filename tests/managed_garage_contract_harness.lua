@@ -38,12 +38,12 @@ exports = setmetatable({
     GetPlayerSnapshot = function(_, sourceId)
       return sourceId == 1 and { citizenid = 'TEST001' } or nil
     end,
-    GetOrgByCode = function(_, code)
-      return orgs[code]
-    end,
     CreateDetailedLog = function()
       return true
     end
+  },
+  mz_org = {
+    GetOrgByCode = function(_, code) return orgs[code] end
   }
 }, {
   __call = function(_, name, handler) exported[name] = handler end
@@ -169,8 +169,20 @@ expect(ok == true and type(err) == 'table' and err.id == 'central_test', 'garage
 expect(MZGaragemGarages.central_test ~= nil, 'runtime do servidor nao recebeu a garagem')
 expect(#clientEvents == 1 and clientEvents[1].target == -1, 'garagem nao foi sincronizada com os clients')
 
+local emergencyOrg = {
+  code = 'mafia_emergency', label = 'Frota de Emergencia', kind = 'org', orgCode = 'mafia',
+  entry = base.entry, spawn = base.spawn, store = base.store,
+  settings = {
+    categoryMode = 'emergency', strictGarage = true, blipEnabled = false,
+    allowImpounded = false, requireDuty = true
+  }
+}
+ok, err = MZGaragemManaged.Create(1, emergencyOrg)
+expect(ok == true and err.filters.categories[1] == 'emergency' and err.org_code == 'mafia',
+  'garagem de emergencia para outra organizacao nao foi criada')
+
 local snapshot = callbacks['mz_garagem:server:getManagedGarages']()
-expect(snapshot.ok == true and #snapshot.garages == 1, 'snapshot nao refletiu a garagem criada')
+expect(snapshot.ok == true and #snapshot.garages == 2, 'snapshot nao refletiu as garagens criadas')
 
 local defaultName = {}
 for key, value in pairs(base) do defaultName[key] = value end
@@ -181,7 +193,7 @@ expect(ok == true and err.label == 'Garagem Pública', 'nome padrao publico nao 
 
 grants['staff.garages.view'] = true
 local listed, managed = MZGaragemManaged.ListForAdmin(1)
-expect(listed == true and #managed == 2, 'listagem administrativa nao retornou ativos')
+expect(listed == true and #managed == 3, 'listagem administrativa nao retornou ativos')
 
 grants['staff.garages.manage'] = true
 local edited = {}

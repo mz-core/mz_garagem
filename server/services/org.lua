@@ -48,11 +48,15 @@ local function categoryAllowed(garage, vehicle)
 end
 
 local function orgOwnsVehicle(orgCode, plate)
-  return exports['mz_core']:OrgOwnsVehicle(orgCode, plate) == true
+  return exports['mz_org']:OrganizationOwnsVehicle(orgCode, plate) == true
+end
+
+local function authorizeVehicle(source, plate)
+  return exports['mz_org']:CanAccessVehicle(source, plate) == true
 end
 
 local function getVehicleOrError(plate)
-  local ok, vehicle = exports['mz_core']:GetVehicleByPlate(plate)
+  local ok, vehicle = exports['mz_vehicles']:GetVehicleByPlate(plate)
   if not ok then
     return false, vehicle
   end
@@ -108,12 +112,20 @@ local function buildConditionPayload(vehicle)
 end
 
 function MZGaragemOrg.list(source, access)
-  local ok, vehicles = exports['mz_core']:GetOrgVehicles(access.garage.org_code)
+  local ok, vehicles = exports['mz_org']:GetOrganizationVehicles(access.garage.org_code)
   if not ok then
     logOrgOpen('list_error', source, access, {
       error = vehicles
     })
     return false, vehicles
+  end
+
+  if shouldLogOrgOpen(access) and #(vehicles or {}) == 0 then
+    print(('[mz_garagem][open_org][empty] garage_id=%s org_code=%s | confirme em mz_vehicles: owner_type=org, owner_id=<id numerico da org> e garage=%s'):format(
+      tostring(access.garage.id or ''),
+      tostring(access.garage.org_code or ''),
+      tostring(access.garage.id or '')
+    ))
   end
 
   local rows = {}
@@ -128,6 +140,15 @@ function MZGaragemOrg.list(source, access)
         end
       end
     end
+  end
+
+  if shouldLogOrgOpen(access) and #rows == 0 and #(vehicles or {}) > 0 then
+    print(('[mz_garagem][open_org][filtered] garage_id=%s org_code=%s | %d veiculo(s) da org foram ocultados; confirme garage=%s no registro'):format(
+      tostring(access.garage.id or ''),
+      tostring(access.garage.org_code or ''),
+      #vehicles,
+      tostring(access.garage.id or '')
+    ))
   end
 
   logOrgOpen('list_ok', source, access, {
@@ -147,6 +168,7 @@ function MZGaragemOrg.withdraw(source, access, plate)
   if not orgOwnsVehicle(access.garage.org_code, plate) then
     return false, 'vehicle_access_denied'
   end
+  if not authorizeVehicle(source, plate) then return false, 'vehicle_access_denied' end
 
   local policyOk, policyErr = validateGaragePolicy(access, vehicle, 'withdraw')
   if not policyOk then
@@ -154,7 +176,7 @@ function MZGaragemOrg.withdraw(source, access, plate)
   end
 
   local expectedGarage = MZGaragemAccess.getExpectedGarageId(access.garage)
-  local takeOutOk, updatedVehicle = exports['mz_core']:TakeOutVehicle(source, plate, expectedGarage)
+  local takeOutOk, updatedVehicle = exports['mz_vehicles']:TakeOutVehicle(source, plate, expectedGarage)
   if not takeOutOk then
     return false, updatedVehicle
   end
@@ -184,13 +206,14 @@ function MZGaragemOrg.releaseImpound(source, access, plate)
   if not orgOwnsVehicle(access.garage.org_code, plate) then
     return false, 'vehicle_access_denied'
   end
+  if not authorizeVehicle(source, plate) then return false, 'vehicle_access_denied' end
 
   local policyOk, policyErr = validateGaragePolicy(access, vehicle, 'release')
   if not policyOk then
     return false, policyErr
   end
 
-  local releaseOk, result = exports['mz_core']:ReleaseImpoundVehicle(plate, access.garage.id, source)
+  local releaseOk, result = exports['mz_vehicles']:ReleaseImpoundVehicle(plate, access.garage.id, source)
   if not releaseOk then
     return false, result
   end
@@ -211,13 +234,14 @@ function MZGaragemOrg.store(source, access, payload)
   if not orgOwnsVehicle(access.garage.org_code, payload.plate) then
     return false, 'vehicle_access_denied'
   end
+  if not authorizeVehicle(source, payload.plate) then return false, 'vehicle_access_denied' end
 
   local policyOk, policyErr = validateGaragePolicy(access, vehicle, 'store')
   if not policyOk then
     return false, policyErr
   end
 
-  local storedOk, storedVehicle = exports['mz_core']:StoreVehicle(
+  local storedOk, storedVehicle = exports['mz_vehicles']:StoreVehicle(
     source,
     payload.plate,
     access.garage.id,
@@ -240,7 +264,7 @@ function MZGaragemOrg.rollbackWithdraw(access, plate)
     return false, 'vehicle_access_denied'
   end
 
-  local ok = exports['mz_core']:SetVehicleStored(plate, true)
+  local ok = exports['mz_vehicles']:SetVehicleStored(plate, true)
   if ok ~= true then
     return false, ok
   end

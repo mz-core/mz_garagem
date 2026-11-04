@@ -91,8 +91,7 @@ end
 local PersistentRespawnState = {
   requested = false,
   running = false,
-  lastVehicle = 0,
-  lastSnapshotAt = 0
+  lastVehicle = 0
 }
 
 function MZGaragemClient.getGarageContext(garage)
@@ -376,8 +375,41 @@ function MZGaragemClient.openGarage(garageId, context)
   return openGarage(garageId, context)
 end
 
+local serviceMissingSince = {}
+
 local function clearServiceTracking(plate)
-  MZGaragemClient.serviceVehiclesByPlate[tostring(plate or '')] = nil
+  local normalizedPlate = tostring(plate or '')
+  MZGaragemClient.serviceVehiclesByPlate[normalizedPlate] = nil
+  serviceMissingSince[normalizedPlate] = nil
+end
+
+local function resolveTrackedServiceVehicle(serviceInfo, plate)
+  local vehicle = tonumber(serviceInfo and serviceInfo.vehicle or 0) or 0
+  if vehicle > 0 and DoesEntityExist(vehicle) then
+    return vehicle
+  end
+
+  local netId = tonumber(serviceInfo and serviceInfo.net_id or 0) or 0
+  if netId > 0
+    and type(NetworkDoesNetworkIdExist) == 'function'
+    and NetworkDoesNetworkIdExist(netId)
+    and type(NetworkGetEntityFromNetworkId) == 'function' then
+    vehicle = NetworkGetEntityFromNetworkId(netId) or 0
+    if vehicle ~= 0 and DoesEntityExist(vehicle) then
+      return vehicle
+    end
+  end
+
+  local normalizedPlate = tostring(plate or ''):upper()
+  for _, candidate in ipairs(GetGamePool('CVehicle')) do
+    if candidate ~= 0
+      and DoesEntityExist(candidate)
+      and MZGaragemClientHelpers.getPlate(candidate) == normalizedPlate then
+      return candidate
+    end
+  end
+
+  return 0
 end
 
 local function logStoreCleanup(stage, detail)
@@ -405,6 +437,17 @@ local STORE_ERROR_MESSAGES = {
   vehicle_access_denied = 'Voce nao tem acesso a este veiculo.',
   vehicle_not_found = 'Este veiculo nao esta registrado.',
   garage_kind_mismatch = 'Este veiculo nao pertence ao tipo desta garagem.',
+  runtime_not_found = 'A vinculacao desta viatura expirou. Retire-a novamente.',
+  runtime_access_denied = 'Esta viatura esta vinculada a outro agente.',
+  runtime_wrong_garage = 'Esta viatura deve voltar para a garagem onde foi retirada.',
+  vehicle_not_service = 'Esta viatura nao pertence a frota de servico. Use a garagem correta.',
+  service_vehicle_not_active = 'A retirada desta viatura ainda nao foi confirmada.',
+  service_vehicle_plate_mismatch = 'A placa da viatura nao confere com a retirada.',
+  service_vehicle_entity_required = 'A viatura precisa estar presente para ser guardada.',
+  service_vehicle_entity_not_found = 'A viatura nao foi encontrada no mundo.',
+  service_vehicle_entity_mismatch = 'A viatura informada nao corresponde a esta retirada.',
+  service_vehicle_model_mismatch = 'O modelo da viatura nao confere com a retirada.',
+  service_vehicle_routing_bucket_mismatch = 'A viatura esta em outra instancia do mundo.',
   house_garage_full = 'Garagem da casa esta cheia.',
   house_garage_vehicle_not_here = 'Este veiculo nao esta guardado nesta garagem.',
   invalid_plate = 'A placa do veiculo e invalida.',
@@ -432,6 +475,18 @@ local function notifyStoreError(response)
   MZGaragemClientHelpers.notify(('%s [%s]'):format(message, err), 'error')
 end
 
+local function readVehicleState(vehicle)
+  if not vehicle or vehicle == 0 or type(Entity) ~= 'function' then
+    return nil
+  end
+
+  local ok, state = pcall(function()
+    return Entity(vehicle).state
+  end)
+
+  return ok and state or nil
+end
+
 local function storeVehicleEntity(garage, vehicle)
   local plate = MZGaragemClientHelpers.getPlate(vehicle, true)
   if plate == '' then
@@ -439,18 +494,24 @@ local function storeVehicleEntity(garage, vehicle)
     return false
   end
 
+  local vehicleState = readVehicleState(vehicle)
   local serviceInfo = MZGaragemClient.serviceVehiclesByPlate[plate]
-  if garage.kind == 'service' then
-    if not serviceInfo or tostring(serviceInfo.garage_id) ~= tostring(garage.id) then
-      MZGaragemClientHelpers.notify('Este ponto guarda apenas veiculos de servico desta garagem.', 'error')
-      return false
-    end
-  elseif serviceInfo then
+  local serviceRuntimeId = serviceInfo and tostring(serviceInfo.runtime_id or '') or ''
+  if serviceRuntimeId == '' then
+    serviceRuntimeId = tostring(vehicleState and vehicleState.mz_service_runtime_id or '')
+  end
+
+  if garage.kind == 'service' and type(vehicleState) == 'table' and vehicleState.mz_persistent == true then
+    MZGaragemClientHelpers.notify('Esta viatura nao pertence a frota de servico. Use a garagem correta.', 'error')
+    return false
+  end
+
+  if garage.kind ~= 'service' and serviceRuntimeId ~= '' then
     MZGaragemClientHelpers.notify('Veiculos de servico devem voltar para a garagem de servico.', 'error')
     return false
   end
 
-  local payload = MZGaragemSpawn.captureStorePayload(vehicle, serviceInfo and serviceInfo.runtime_id or nil)
+  local payload = MZGaragemSpawn.captureStorePayload(vehicle, serviceRuntimeId ~= '' and serviceRuntimeId or nil)
   payload.plate = plate
   local response = lib.callback.await('mz_garagem:server:storeVehicle', false, garage.id, payload, MZGaragemClient.getGarageContext(garage))
   if not response or response.ok ~= true then
@@ -592,17 +653,10 @@ CreateThread(function()
     if PersistentRespawnState.lastVehicle ~= 0 and PersistentRespawnState.lastVehicle ~= vehicle then
       MZGaragemSpawn.reportPersistentVehicle(PersistentRespawnState.lastVehicle)
       PersistentRespawnState.lastVehicle = 0
-      PersistentRespawnState.lastSnapshotAt = GetGameTimer()
     end
 
     if vehicle ~= 0 and DoesEntityExist(vehicle) and GetPedInVehicleSeat(vehicle, -1) == ped then
       PersistentRespawnState.lastVehicle = vehicle
-
-      local now = GetGameTimer()
-      if (now - (PersistentRespawnState.lastSnapshotAt or 0)) >= 45000 then
-        MZGaragemSpawn.reportPersistentVehicle(vehicle)
-        PersistentRespawnState.lastSnapshotAt = now
-      end
     end
 
     Wait(5000)
@@ -681,11 +735,40 @@ CreateThread(function()
   while true do
     Wait(tonumber(MZGaragemConfig.service.runtime_cleanup_interval_ms or 2000) or 2000)
 
+    local now = GetGameTimer()
+    local graceMs = tonumber(MZGaragemConfig.service.runtime_missing_grace_ms or 15000) or 15000
     local toRemove = {}
+
     for plate, serviceInfo in pairs(MZGaragemClient.serviceVehiclesByPlate) do
-      if not serviceInfo.vehicle or not DoesEntityExist(serviceInfo.vehicle) then
-        TriggerServerEvent('mz_garagem:server:serviceReleaseRuntime', serviceInfo.runtime_id)
-        toRemove[#toRemove + 1] = plate
+      local previousEntity = tonumber(serviceInfo.vehicle or 0) or 0
+      local vehicle = resolveTrackedServiceVehicle(serviceInfo, plate)
+      if vehicle ~= 0 then
+        serviceMissingSince[plate] = nil
+        serviceInfo.vehicle = vehicle
+        serviceInfo.net_id = NetworkGetNetworkIdFromEntity(vehicle)
+
+        if isGarageDebug() and previousEntity ~= vehicle then
+          print(('[mz_garagem][service_cleanup][resolved] plate=%s | previous_entity=%s | entity=%s | net_id=%s'):format(
+            tostring(plate or ''),
+            tostring(previousEntity),
+            tostring(vehicle),
+            tostring(serviceInfo.net_id or 0)
+          ))
+        end
+      else
+        serviceMissingSince[plate] = serviceMissingSince[plate] or now
+        if (now - serviceMissingSince[plate]) >= graceMs then
+          if isGarageDebug() then
+            print(('[mz_garagem][service_cleanup][release] plate=%s | runtime_id=%s | missing_ms=%s'):format(
+              tostring(plate or ''),
+              tostring(serviceInfo.runtime_id or ''),
+              tostring(now - serviceMissingSince[plate])
+            ))
+          end
+
+          TriggerServerEvent('mz_garagem:server:serviceReleaseRuntime', serviceInfo.runtime_id)
+          toRemove[#toRemove + 1] = plate
+        end
       end
     end
 

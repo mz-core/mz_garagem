@@ -41,7 +41,7 @@ local function categoryAllowed(garage, vehicle)
 end
 
 local function getVehicleOrError(plate)
-  local ok, vehicle = exports['mz_core']:GetVehicleByPlate(plate)
+  local ok, vehicle = exports['mz_vehicles']:GetVehicleByPlate(plate)
   if not ok then
     return false, vehicle
   end
@@ -92,7 +92,7 @@ local function countStoredVehiclesInGarage(source, garageId, exceptPlate)
     return 0
   end
 
-  local ok, vehicles = exports['mz_core']:GetPlayerVehicles(source)
+  local ok, vehicles = exports['mz_vehicles']:GetPlayerVehicles(source)
   if not ok then
     return 0
   end
@@ -130,7 +130,7 @@ local function buildConditionPayload(vehicle)
 end
 
 function MZGaragemOwned.list(source, access)
-  local ok, vehicles = exports['mz_core']:GetPlayerVehicles(source)
+  local ok, vehicles = exports['mz_vehicles']:GetPlayerVehicles(source)
   if not ok then
     return false, vehicles
   end
@@ -200,7 +200,7 @@ function MZGaragemOwned.withdraw(source, access, plate)
     return false, vehicle
   end
 
-  local playerOwns = exports['mz_core']:PlayerOwnsVehicle(access.citizenid, plate)
+  local playerOwns = exports['mz_vehicles']:PlayerOwnsVehicle(access.citizenid, plate)
   if playerOwns ~= true then
     return false, 'vehicle_access_denied'
   end
@@ -211,7 +211,7 @@ function MZGaragemOwned.withdraw(source, access, plate)
   end
 
   local expectedGarage = MZGaragemAccess.getExpectedGarageId(access.garage)
-  local takeOutOk, updatedVehicle = exports['mz_core']:TakeOutVehicle(source, plate, expectedGarage)
+  local takeOutOk, updatedVehicle = exports['mz_vehicles']:TakeOutVehicle(source, plate, expectedGarage)
   if not takeOutOk then
     return false, updatedVehicle
   end
@@ -238,7 +238,7 @@ function MZGaragemOwned.releaseImpound(source, access, plate)
     return false, vehicle
   end
 
-  local playerOwns = exports['mz_core']:PlayerOwnsVehicle(access.citizenid, plate)
+  local playerOwns = exports['mz_vehicles']:PlayerOwnsVehicle(access.citizenid, plate)
   if playerOwns ~= true then
     return false, 'vehicle_access_denied'
   end
@@ -248,7 +248,7 @@ function MZGaragemOwned.releaseImpound(source, access, plate)
     return false, policyErr
   end
 
-  local releaseOk, result = exports['mz_core']:ReleaseImpoundVehicle(plate, access.garage.id, source)
+  local releaseOk, result = exports['mz_vehicles']:ReleaseImpoundVehicle(plate, access.garage.id, source)
   if not releaseOk then
     return false, result
   end
@@ -266,7 +266,7 @@ function MZGaragemOwned.store(source, access, payload)
     return false, 'garage_kind_mismatch'
   end
 
-  local playerOwns = exports['mz_core']:PlayerOwnsVehicle(access.citizenid, payload.plate)
+  local playerOwns = exports['mz_vehicles']:PlayerOwnsVehicle(access.citizenid, payload.plate)
   if playerOwns ~= true then
     return false, 'vehicle_access_denied'
   end
@@ -300,7 +300,7 @@ function MZGaragemOwned.store(source, access, payload)
     end
   end
 
-  local storedOk, storedVehicle = exports['mz_core']:StoreVehicle(
+  local storedOk, storedVehicle = exports['mz_vehicles']:StoreVehicle(
     source,
     payload.plate,
     access.garage.id,
@@ -319,12 +319,12 @@ function MZGaragemOwned.store(source, access, payload)
 end
 
 function MZGaragemOwned.rollbackWithdraw(access, plate)
-  local playerOwns = exports['mz_core']:PlayerOwnsVehicle(access.citizenid, plate)
+  local playerOwns = exports['mz_vehicles']:PlayerOwnsVehicle(access.citizenid, plate)
   if playerOwns ~= true then
     return false, 'vehicle_access_denied'
   end
 
-  local ok = exports['mz_core']:SetVehicleStored(plate, true)
+  local ok = exports['mz_vehicles']:SetVehicleStored(plate, true)
   if ok ~= true then
     return false, ok
   end

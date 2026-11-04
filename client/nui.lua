@@ -223,13 +223,30 @@ local function handleWithdraw(entryId)
   end
 
   if response.spawn.kind == 'service' and response.spawn.runtime_id then
-    TriggerServerEvent('mz_garagem:server:serviceConfirmSpawn', response.spawn.runtime_id, spawned.net_id)
-    MZGaragemClient.serviceVehiclesByPlate[spawned.plate] = {
-      runtime_id = response.spawn.runtime_id,
-      garage_id = MZGaragemNUI.currentGarage.id,
-      vehicle = spawned.vehicle,
-      net_id = spawned.net_id
-    }
+    local confirm = lib.callback.await(
+      'mz_garagem:server:serviceConfirmSpawn',
+      false,
+      response.spawn.runtime_id,
+      spawned.net_id
+    )
+    if not confirm or confirm.ok ~= true then
+      TriggerServerEvent('mz_garagem:server:serviceCancelSpawn', response.spawn.runtime_id)
+      MZGaragemClientHelpers.deleteVehicleSafely(spawned.vehicle)
+      MZGaragemNUI.busy = false
+      local code = confirm and confirm.error or 'service_vehicle_bind_failed'
+      MZGaragemClientHelpers.notify(('Nao foi possivel vincular a viatura. [%s]'):format(code), 'error')
+      return
+    end
+
+    local trackedPlate = tostring(response.spawn.plate or spawned.plate or ''):upper()
+    if trackedPlate ~= '' then
+      MZGaragemClient.serviceVehiclesByPlate[trackedPlate] = {
+        runtime_id = response.spawn.runtime_id,
+        garage_id = tostring(response.spawn.garage_id or MZGaragemNUI.currentGarage.id),
+        vehicle = spawned.vehicle,
+        net_id = spawned.net_id
+      }
+    end
   elseif response.spawn.kind == 'persistent' and spawned.vehicle then
     MZGaragemSpawn.confirmPersistentVehicleSpawn(spawned.vehicle, response.spawn)
   end

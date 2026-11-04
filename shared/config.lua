@@ -26,7 +26,9 @@ MZGaragemConfig = {
   service = {
     plate_prefix = 'SRV',
     pending_spawn_timeout_seconds = 30,
-    runtime_cleanup_interval_ms = 2000
+    runtime_cleanup_interval_ms = 2000,
+    runtime_missing_grace_ms = 15000,
+    persist_state = true
   },
   ui = {
     title = 'Garagem'

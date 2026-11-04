@@ -45,5 +45,23 @@ MZGaragemServiceFleet = {
         props = {}
       }
     }
+  },
+  police_air = {
+    fleet_id = 'police_air',
+    label = 'Police Air Support',
+    entries = {
+      {
+        entry_id = 'police_maverick',
+        model = 'polmav',
+        label = 'Police Maverick',
+        brand = 'Buckingham',
+        category = 'emergency',
+        image_key = 'polmav',
+        fuel = 100,
+        engine = 1000,
+        body = 1000,
+        props = {}
+      }
+    }
   }
 }

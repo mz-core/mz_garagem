@@ -25,7 +25,7 @@ local function getPlayer(source)
 end
 
 local function getPlayerOrgs(source)
-  return exports['mz_core']:GetPlayerOrgs(source) or {}
+  return exports['mz_org']:GetPlayerOrgs(source) or {}
 end
 
 local function shouldLogGarageOpenDebug(garage)
@@ -166,7 +166,8 @@ local function normalizeHouseContext(context)
   }
 end
 
-function MZGaragemAccess.resolve(source, garageId, requestContext)
+function MZGaragemAccess.resolve(source, garageId, requestContext, options)
+  options = type(options) == 'table' and options or {}
   local player = getPlayer(source)
   if not player then
     return false, 'player_not_loaded'
@@ -250,7 +251,7 @@ function MZGaragemAccess.resolve(source, garageId, requestContext)
     return false, 'org_membership_required'
   end
 
-  if access.require_duty == true and org.duty ~= true then
+  if access.require_duty == true and org.duty ~= true and options.allow_off_duty_return ~= true then
     logAccessOpenDebug('resolve_error', source, garage, org, 'org_duty_required')
     return false, 'org_duty_required'
   end

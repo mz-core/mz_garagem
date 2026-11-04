@@ -254,9 +254,9 @@ local function validateGarageReferences(garageId, garage)
     return
   end
 
-  local org = exports['mz_core']:GetOrgByCode(orgCode)
+  local org = exports['mz_org']:GetOrgByCode(orgCode)
   if not org then
-    logWarn(('garage "%s" references org "%s" that was not found in mz_core; access will stay blocked until the org exists'):format(
+    logWarn(('garage "%s" references org "%s" that was not found in mz_org; access will stay blocked until the org exists'):format(
       garageId,
       orgCode
     ))
@@ -569,6 +569,13 @@ CreateThread(function()
   end
 
   local ready, readinessResult = MZGaragemBootstrapReadiness.runWhenReady(function()
+    if MZGaragemService and type(MZGaragemService.PrepareState) == 'function' then
+      local stateOk, stateErr = MZGaragemService.PrepareState()
+      if stateOk ~= true then
+        logWarn(('estado persistente da frota de servico indisponivel: %s'):format(tostring(stateErr)))
+      end
+    end
+
     if MZGaragemManaged and type(MZGaragemManaged.Initialize) == 'function' then
       MZGaragemManaged.Initialize()
     end

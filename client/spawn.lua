@@ -316,6 +316,10 @@ local function buildSpawnPayload(prepared, payload)
   logHealthNormalization('build_payload', rawEngine, rawBody, rawTank, engine, body, tank)
 
   return {
+    kind = trimScalarString(payload.kind),
+    runtime_id = trimScalarString(payload.runtime_id),
+    garage_id = trimScalarString(payload.garage_id),
+    org_code = trimScalarString(payload.org_code),
     vehicle_model = vehicleModel,
     model_hash = modelHash,
     spawn_point = spawnPoint,
@@ -561,7 +565,12 @@ function MZGaragemSpawn.finalizeSpawnedVehicle(vehicle, data)
   local entityState = Entity(vehicle).state
   if entityState then
     entityState:set('mz_plate', plate, true)
-    entityState:set('mz_persistent', true, true)
+    local isService = data.kind == 'service'
+    entityState:set('mz_persistent', not isService, true)
+    if isService then
+      entityState:set('mz_service_runtime_id', tostring(data.runtime_id or ''), true)
+      entityState:set('mz_service_org_code', tostring(data.org_code or ''), true)
+    end
     local vehicleId = tonumber(data.id or data.vehicle_id)
     if vehicleId then
       entityState:set('mz_vehicle_id', vehicleId, true)

@@ -63,6 +63,22 @@ Itens nao executados devem permanecer desmarcados.
 - [ ] Reativar restaura interacao, marker e blip.
 - [ ] Reiniciar `mz_garagem` preserva o estado ativo/arquivado.
 
+## Frota de servico
+
+- [ ] Retirar e guardar uma viatura de servico no ponto correto.
+- [ ] Permanecer mais de 30 segundos com a viatura fora e ainda conseguir guarda-la.
+- [ ] Com uma viatura ativa, uma segunda retirada da mesma frota e recusada.
+- [ ] Um veiculo persistente da organizacao no ponto de servico e recusado com mensagem clara.
+- [ ] A viatura so e aceita com o runtime ativo, a placa da retirada e a entidade presente.
+- [ ] Tentativa com placa, entidade ou garagem divergente e recusada sem consumir o runtime.
+- [ ] Agente fora de servico consegue devolver uma viatura de servico que ainda esta vinculada a ele.
+- [ ] Depois de guardar, o acesso temporario da viatura e revogado e a entidade some do mundo.
+- [ ] Dano, combustivel, tuning e estado de destruicao sao preservados por personagem ao guardar.
+- [ ] Outro personagem que retira a mesma entrada recebe o proprio estado, nao o do primeiro.
+- [ ] Reiniciar `mz_garagem` recarrega o estado persistente da frota do banco.
+- [ ] Com `persist_state=false`, a retirada volta a usar os defaults da frota.
+- [ ] Reiniciar `mz_garagem` com viatura fora exige nova retirada; o runtime antigo nao e aceito.
+
 ## Regressao
 
 - [ ] Garagens estaticas publicas continuam abrindo.

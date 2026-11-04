@@ -4,7 +4,7 @@ lua54 'yes'
 
 name 'mz_garagem'
 author 'Mazus'
-description 'Garage v1 integrated with mz_core'
+description 'Garage domain integrated with mz_vehicles and mz_org'
 version '0.1.0'
 
 shared_scripts {
@@ -24,6 +24,7 @@ server_scripts {
   'server/services/dto.lua',
   'server/services/owned.lua',
   'server/services/org.lua',
+  'server/services/service_state_repository.lua',
   'server/services/service.lua',
   'server/callbacks.lua',
   'server/bootstrap_readiness.lua',
@@ -52,6 +53,7 @@ dependencies {
   'ox_lib',
   'oxmysql',
   'mz_core',
+  'mz_org',
   'mz_vehicles',
   'mz_fuel'
 }

@@ -174,7 +174,7 @@ MZGaragemGarages = {
       }
     },
     filters = {
-      categories = { 'car' }
+      categories = { 'car', 'emergency' }
     },
     access = {
       require_membership = true,
@@ -240,6 +240,68 @@ MZGaragemGarages = {
     },
     filters = {
       categories = { 'car' }
+    },
+    access = {
+      require_membership = true,
+      require_duty = true,
+      min_grade_level = 0,
+      primary_only = false,
+      required_org_permissions = {}
+    },
+    service = {
+      limit_one_active = true
+    }
+  },
+
+  police_air_service = {
+    id = 'police_air_service',
+    label = 'Police Air Support',
+    kind = 'service',
+    org_code = 'police',
+    fleet_id = 'police_air',
+    zone = {
+      coords = vec3(449.2, -981.2, 43.7),
+      radius = 4.0
+    },
+    spawn_points = {
+      vec4(449.2, -981.2, 43.7, 90.0)
+    },
+    blip = {
+      enabled = false,
+      sprite = 43,
+      color = 38,
+      scale = 0.6,
+      label = 'Police Air Support'
+    },
+    store = {
+      enabled = true,
+      coords = vec3(449.2, -981.2, 43.7),
+      radius = 8.0,
+      interact = {
+        enabled = true,
+        drawDistance = 30.0,
+        interactDistance = 8.0,
+        marker = {
+          enabled = true,
+          type = 1,
+          size = vec3(7.0, 7.0, 0.18),
+          color = { r = 80, g = 210, b = 255, a = 70 },
+          bobUpAndDown = false,
+          rotate = false,
+          faceCamera = false
+        },
+        text = {
+          enabled = true,
+          label = '[E] Guardar aeronave',
+          offsetZ = 0.45
+        },
+        blip = {
+          enabled = false
+        }
+      }
+    },
+    filters = {
+      categories = { 'emergency' }
     },
     access = {
       require_membership = true,
