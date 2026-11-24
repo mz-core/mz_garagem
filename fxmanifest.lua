@@ -5,7 +5,7 @@ lua54 'yes'
 name 'mz_garagem'
 author 'Mazus'
 description 'Garage domain integrated with mz_vehicles and mz_org'
-version '0.1.0'
+version '0.1.2'
 
 shared_scripts {
   '@ox_lib/init.lua',
